@@ -2,30 +2,29 @@ import { useState, useCallback, useEffect } from 'react';
 import Scene3D from './components/Scene3D';
 import ComponentLibrary from './components/ComponentLibrary';
 import Toolbar from './components/Toolbar';
-import { PipelineComponent, ComponentType } from './types/pipeline';
 import { calculateTotalCost } from './utils/pricing';
 import MaterialsList from './components/MaterialsList';
 
 function App() {
-  const [components, setComponents] = useState<PipelineComponent[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [placingType, setPlacingType] = useState<ComponentType | null>(null);
+  const [components, setComponents] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [placingType, setPlacingType] = useState(null);
   const [designName, setDesignName] = useState('Untitled Design');
-  const [clipboard, setClipboard] = useState<PipelineComponent | null>(null);
+  const [clipboard, setClipboard] = useState(null);
   const [showMaterials, setShowMaterials] = useState(false);
 
   const totalCost = calculateTotalCost(components);
 
 
-  const handleAddComponent = useCallback((type: ComponentType) => {
+  const handleAddComponent = useCallback((type) => {
     setPlacingType(type);
     setSelectedId(null);
   }, []);
 
-  const handlePlaceComponent = useCallback((position: [number, number, number], rotation: [number, number, number], properties: Record<string, unknown> = {}) => {
+  const handlePlaceComponent = useCallback((position, rotation, properties = {}) => {
     if (!placingType) return;
 
-    const newComponent: PipelineComponent = {
+    const newComponent = {
       id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       component_type: placingType,
       position_x: position[0],
@@ -47,13 +46,13 @@ function App() {
     setPlacingType(null);
   }, []);
 
-  const handleUpdateComponent = useCallback((updatedComponent: PipelineComponent) => {
+  const handleUpdateComponent = useCallback((updatedComponent) => {
     setComponents(prev =>
       prev.map(comp => (comp.id === updatedComponent.id ? updatedComponent : comp))
     );
   }, []);
 
-  const handleDeleteComponent = useCallback((id: string) => {
+  const handleDeleteComponent = useCallback((id) => {
     setComponents(prev => prev.filter(comp => comp.id !== id));
     if (selectedId === id) {
       setSelectedId(null);
@@ -62,21 +61,16 @@ function App() {
 
 
 
-  // ...
-
   const handleSaveDesign = () => {
     try {
-      // Find the canvas element
       const canvas = document.querySelector('canvas');
       if (!canvas) {
         alert('Could not find 3D view to capture.');
         return;
       }
 
-      // Convert canvas to image
       const imgData = canvas.toDataURL('image/png');
 
-      // Download as Image
       const link = document.createElement('a');
       link.href = imgData;
       link.download = `${designName || 'design'}.png`;
@@ -103,21 +97,17 @@ function App() {
     setDesignName('Untitled Design');
   };
 
-  // Keyboard Shortcuts (Delete, Copy, Paste, Cancel)
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Delete
+    const handleKeyDown = (e) => {
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
         handleDeleteComponent(selectedId);
       }
 
-      // Cancel
       if (e.key === 'Escape') {
         handleCancelPlacement();
         setSelectedId(null);
       }
 
-      // Copy (Ctrl+C)
       if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selectedId) {
         const component = components.find(c => c.id === selectedId);
         if (component) {
@@ -126,15 +116,14 @@ function App() {
         }
       }
 
-      // Paste (Ctrl+V)
       if ((e.metaKey || e.ctrlKey) && e.key === 'v' && clipboard) {
-        const newComponent: PipelineComponent = {
+        const newComponent = {
           ...clipboard,
           id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          position_x: clipboard.position_x + 2, // Offset so it's visible
+          position_x: clipboard.position_x + 2,
           position_y: clipboard.position_y,
           position_z: clipboard.position_z,
-          connections: [] // Don't copy connections
+          connections: []
         };
         setComponents(prev => [...prev, newComponent]);
         setSelectedId(newComponent.id);

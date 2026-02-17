@@ -1,13 +1,6 @@
-import { ComponentType } from '../types/pipeline';
 import { Package, ArrowRight, ArrowUp, Circle, Filter, Droplets, GitBranch, Slash, StopCircle, Trash2 } from 'lucide-react';
 
-interface ComponentLibraryProps {
-  onAddComponent: (type: ComponentType) => void;
-  selectedId: string | null;
-  onDelete: () => void;
-}
-
-const componentDefinitions: { type: ComponentType; label: string; icon: React.ReactNode; color: string }[] = [
+const componentDefinitions = [
   { type: 'straight', label: 'Straight Pipe', icon: <ArrowRight size={20} />, color: '#2196f3' },
   { type: 'elbow', label: 'Elbow (90°)', icon: <Package size={20} />, color: '#2196f3' },
   { type: 'elbow-45', label: 'Elbow (45°)', icon: <Slash size={20} />, color: '#2196f3' },
@@ -19,7 +12,7 @@ const componentDefinitions: { type: ComponentType; label: string; icon: React.Re
   { type: 'cap', label: 'Cap', icon: <StopCircle size={20} />, color: '#757575' },
 ];
 
-export default function ComponentLibrary({ onAddComponent, selectedId, onDelete }: ComponentLibraryProps) {
+export default function ComponentLibrary({ onAddComponent, selectedId, onDelete }) {
   return (
     <div className="w-64 bg-gray-900 border-r border-gray-700 p-4 flex flex-col">
       <h2 className="text-white font-semibold mb-4 text-lg">Component Library</h2>

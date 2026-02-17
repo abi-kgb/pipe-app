@@ -1,23 +1,16 @@
-
 import { useState, useRef, useEffect } from 'react';
 import * as THREE from 'three';
-import { Vector3, Quaternion, Plane, Matrix4 } from 'three';
+import { Vector3, Quaternion, Plane } from 'three';
 import { useThree } from '@react-three/fiber';
 import { Text, Billboard } from '@react-three/drei';
-import { PipelineComponent } from '../types/pipeline';
 
-interface BoundingBoxGizmoProps {
-    component: PipelineComponent;
-    onUpdate: (component: PipelineComponent) => void;
-}
-
-export default function BoundingBoxGizmo({ component, onUpdate }: BoundingBoxGizmoProps) {
-    const controls = useThree((state) => state.controls) as unknown as { enabled: boolean } | null;
-    const { camera, raycaster, gl } = useThree();
+export default function BoundingBoxGizmo({ component, onUpdate }) {
+    const controls = useThree((state) => state.controls);
+    const { camera } = useThree();
 
     // Dimensions
-    const length = (component.properties?.length as number) || 2;
-    const radiusScale = (component.properties?.radiusScale as number) || 1;
+    const length = component.properties?.length || 2;
+    const radiusScale = component.properties?.radiusScale || 1;
     const radius = 0.15 * radiusScale;
 
     const boxHeight = length;
@@ -39,11 +32,10 @@ export default function BoundingBoxGizmo({ component, onUpdate }: BoundingBoxGiz
     const localZ = new Vector3(0, 0, 1).applyQuaternion(quaternion);
 
     // Handle Logic
-    const Handle = ({ offset, axisVector, cursor, type, sideMultiplier }: { offset: [number, number, number], axisVector: Vector3, cursor: string, type: 'length' | 'radius', sideMultiplier: number }) => {
+    const Handle = ({ offset, axisVector, cursor, type, sideMultiplier }) => {
         const [hovered, setHovered] = useState(false);
-        const [dragStart, setDragStart] = useState<{ plane: Plane, startPoint: Vector3, startLength: number, startRadiusScale: number, startPos: Vector3 } | null>(null);
+        const [dragStart, setDragStart] = useState(null);
 
-        // Safely manage controls state based on dragging
         useEffect(() => {
             if (controls) {
                 controls.enabled = !dragStart;
@@ -60,9 +52,8 @@ export default function BoundingBoxGizmo({ component, onUpdate }: BoundingBoxGiz
                 onPointerOut={(e) => { e.stopPropagation(); setHovered(false); document.body.style.cursor = 'auto'; }}
                 onPointerDown={(e) => {
                     e.stopPropagation();
-                    (e.target as Element).setPointerCapture(e.pointerId);
+                    e.target.setPointerCapture(e.pointerId);
 
-                    // Create a virtual plane facing the camera for stable dragging
                     const normal = new Vector3();
                     camera.getWorldDirection(normal).negate();
                     const plane = new Plane().setFromNormalAndCoplanarPoint(normal, e.point);
@@ -77,53 +68,36 @@ export default function BoundingBoxGizmo({ component, onUpdate }: BoundingBoxGiz
                 }}
                 onPointerUp={(e) => {
                     e.stopPropagation();
-                    (e.target as Element).releasePointerCapture(e.pointerId);
+                    e.target.releasePointerCapture(e.pointerId);
                     setDragStart(null);
                 }}
                 onPointerMove={(e) => {
                     if (dragStart) {
                         e.stopPropagation();
 
-                        // Raycast against the virtual plane
                         const currentPoint = new Vector3();
                         const intersection = e.ray.intersectPlane(dragStart.plane, currentPoint);
 
                         if (intersection) {
-                            // Vector from drag start to current point (World Space)
                             const dragVec = new Vector3().subVectors(intersection, dragStart.startPoint);
-
-                            // Project drag onto the interest axis (local axis in world space)
                             const projectedDelta = dragVec.dot(axisVector);
 
-                            // Calculate new values
                             let newLength = dragStart.startLength;
                             let newRadiusScale = dragStart.startRadiusScale;
                             let posShift = new Vector3(0, 0, 0);
 
                             if (type === 'length') {
-                                // Change = projectedDelta * sideMultiplier
                                 const change = projectedDelta * sideMultiplier;
                                 newLength = Math.max(0.5, dragStart.startLength + change);
 
-                                // To keep opposite side fixed:
-                                // Center moves by (Change / 2) * AxisDirection (Weighted by multiplier to move WITH the growth)
                                 const actualChange = newLength - dragStart.startLength;
                                 const shiftMag = actualChange / 2 * sideMultiplier;
                                 posShift = axisVector.clone().multiplyScalar(shiftMag);
                             } else {
-                                // Radius
-                                // Symmetric Scaling (Center Fixed)
-                                // If I drag Right (+), Radius increases by Delta.
-                                // Right Edge moves by Delta. Left Edge moves by -Delta.
-
                                 const change = projectedDelta * sideMultiplier;
-                                const deltaRadius = change; // 1:1 movement with mouse
-
+                                const deltaRadius = change;
                                 const deltaScale = deltaRadius / 0.15;
-
                                 newRadiusScale = Math.max(0.5, dragStart.startRadiusScale + deltaScale);
-
-                                // No position shift for radius (concentric growth)
                                 posShift = new Vector3(0, 0, 0);
                             }
 
@@ -149,18 +123,16 @@ export default function BoundingBoxGizmo({ component, onUpdate }: BoundingBoxGiz
     };
 
     const halfLen = length / 2;
-    const halfWid = radius; // Width from center
-    const halfDep = radius; // Depth from center
+    const halfWid = radius;
+    const halfDep = radius;
 
     return (
         <group>
-            {/* Wireframe */}
             <lineSegments>
                 <edgesGeometry args={[new THREE.BoxGeometry(radius * 2, length, radius * 2)]} />
                 <lineBasicMaterial color="#4287f5" />
             </lineSegments>
 
-            {/* Top (Length +) */}
             {(component.component_type === 'straight' || component.component_type === 'tank' || component.component_type === 'vertical') && (
                 <Handle
                     offset={[0, halfLen, 0]}
@@ -170,7 +142,6 @@ export default function BoundingBoxGizmo({ component, onUpdate }: BoundingBoxGiz
                     sideMultiplier={1}
                 />
             )}
-            {/* Bottom (Length -) */}
             {(component.component_type === 'straight' || component.component_type === 'tank' || component.component_type === 'vertical') && (
                 <Handle
                     offset={[0, -halfLen, 0]}
@@ -181,7 +152,6 @@ export default function BoundingBoxGizmo({ component, onUpdate }: BoundingBoxGiz
                 />
             )}
 
-            {/* Right (Local X+) */}
             <Handle
                 offset={[halfWid, 0, 0]}
                 axisVector={localX}
@@ -189,7 +159,6 @@ export default function BoundingBoxGizmo({ component, onUpdate }: BoundingBoxGiz
                 type="radius"
                 sideMultiplier={1}
             />
-            {/* Left (Local X-) */}
             <Handle
                 offset={[-halfWid, 0, 0]}
                 axisVector={localX}
@@ -198,7 +167,6 @@ export default function BoundingBoxGizmo({ component, onUpdate }: BoundingBoxGiz
                 sideMultiplier={-1}
             />
 
-            {/* Front (Local Z+) */}
             <Handle
                 offset={[0, 0, halfDep]}
                 axisVector={localZ}
@@ -206,7 +174,6 @@ export default function BoundingBoxGizmo({ component, onUpdate }: BoundingBoxGiz
                 type="radius"
                 sideMultiplier={1}
             />
-            {/* Back (Local Z-) */}
             <Handle
                 offset={[0, 0, -halfDep]}
                 axisVector={localZ}
@@ -215,7 +182,6 @@ export default function BoundingBoxGizmo({ component, onUpdate }: BoundingBoxGiz
                 sideMultiplier={-1}
             />
 
-            {/* Dimensions Labels */}
             <Billboard position={[halfWid + 0.3, 0, 0]}>
                 <Text fontSize={0.2} color="black" outlineWidth={0.02} outlineColor="white">
                     {(radius * 2).toFixed(2)}

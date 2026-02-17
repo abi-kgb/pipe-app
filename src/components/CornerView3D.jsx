@@ -1,13 +1,8 @@
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
-import { PipelineComponent } from '../types/pipeline';
 import PipeComponent from './PipeComponent';
 
-interface CornerView3DProps {
-    components: PipelineComponent[];
-}
-
-export default function CornerView3D({ components }: CornerView3DProps) {
+export default function CornerView3D({ components }) {
     return (
         <div className="absolute bottom-4 right-4 w-64 h-64 border-2 border-gray-700 rounded-lg overflow-hidden shadow-2xl bg-gray-900">
             <Canvas
@@ -36,7 +31,6 @@ export default function CornerView3D({ components }: CornerView3DProps) {
                     dampingFactor={0.05}
                 />
 
-                {/* Grid reference */}
                 <gridHelper args={[20, 20, '#2a2a4a', '#1a1a3a']} position={[0, -0.01, 0]} />
             </Canvas>
 

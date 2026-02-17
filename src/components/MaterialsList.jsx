@@ -1,34 +1,19 @@
 import { useRef } from 'react';
 import { X, Download } from 'lucide-react';
 import html2canvas from 'html2canvas';
-import { PipelineComponent } from '../types/pipeline';
 import { calculateComponentCost } from '../utils/pricing';
 
-interface MaterialsListProps {
-    components: PipelineComponent[];
-    onClose: () => void;
-}
-
-interface MaterialItem {
-    type: string;
-    details: string;
-    quantity: number;
-    unitCost: number;
-    totalCost: number;
-}
-
-export default function MaterialsList({ components, onClose }: MaterialsListProps) {
-    const contentRef = useRef<HTMLDivElement>(null);
+export default function MaterialsList({ components, onClose }) {
+    const contentRef = useRef(null);
 
     // Group components by type and properties
-    const materials: MaterialItem[] = [];
-    const map = new Map<string, MaterialItem>();
+    const materials = [];
+    const map = new Map();
 
     components.forEach(comp => {
         const cost = calculateComponentCost(comp);
         const key = `${comp.component_type}-${comp.properties?.length || 0}-${comp.properties?.radiusScale || 1}`;
 
-        // Details string
         let details = '';
         if (comp.component_type === 'straight' || comp.component_type === 'vertical') {
             details = `L: ${(comp.properties?.length || 2).toFixed(1)}m, R: ${(comp.properties?.radiusScale || 1).toFixed(1)}x`;
@@ -37,7 +22,7 @@ export default function MaterialsList({ components, onClose }: MaterialsListProp
         }
 
         if (map.has(key)) {
-            const item = map.get(key)!;
+            const item = map.get(key);
             item.quantity += 1;
             item.totalCost += cost;
         } else {
@@ -60,7 +45,7 @@ export default function MaterialsList({ components, onClose }: MaterialsListProp
 
         try {
             const canvas = await html2canvas(contentRef.current, {
-                backgroundColor: '#1f2937', // Dark gray background
+                backgroundColor: '#1f2937',
             });
 
             const link = document.createElement('a');
@@ -84,7 +69,7 @@ export default function MaterialsList({ components, onClose }: MaterialsListProp
                 </div>
 
                 <div className="flex-1 overflow-auto p-6" ref={contentRef}>
-                    <div className="bg-gray-800 p-4 rounded-lg"> {/* Inner container for capture */}
+                    <div className="bg-gray-800 p-4 rounded-lg">
                         <div className="flex items-center justify-between mb-6">
                             <h3 className="text-lg font-semibold text-gray-200">Component Breakdown</h3>
                             <span className="text-sm text-gray-400">{new Date().toLocaleDateString()}</span>

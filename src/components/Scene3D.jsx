@@ -1,32 +1,17 @@
 import { useState } from 'react';
 import { useThree, useFrame, Canvas } from '@react-three/fiber';
 import { CameraControls, Grid, TransformControls } from '@react-three/drei';
-import { PipelineComponent, ComponentType } from '../types/pipeline';
 import PipeComponent from './PipeComponent';
 import { findSnapPoint } from '../utils/snapping';
 import * as THREE from 'three';
-
-interface Scene3DProps {
-  components: PipelineComponent[];
-  selectedId: string | null;
-  onSelectComponent: (id: string | null) => void;
-  placingType: ComponentType | null;
-  onPlaceComponent: (position: [number, number, number], rotation: [number, number, number]) => void;
-  onCancelPlacement: () => void;
-  onUpdateComponent: (component: PipelineComponent) => void;
-}
 
 const PlacementGhost = ({
   placingType,
   components,
   onPlace,
-}: {
-  placingType: ComponentType;
-  components: PipelineComponent[];
-  onPlace: (position: [number, number, number], rotation: [number, number, number]) => void;
 }) => {
   const { raycaster, pointer, camera } = useThree();
-  const [snap, setSnap] = useState<{ position: THREE.Vector3; rotation: THREE.Euler; isValid: boolean } | null>(null);
+  const [snap, setSnap] = useState(null);
 
   useFrame(() => {
     raycaster.setFromCamera(pointer, camera);
@@ -34,24 +19,19 @@ const PlacementGhost = ({
     setSnap(result);
   });
 
-  const handleClick = (e: any) => {
+  const handleClick = (e) => {
     e.stopPropagation();
-    console.log('Ghost clicked! Snap state:', snap);
     if (snap && snap.isValid) {
-      console.log('Placing component at:', snap.position);
       onPlace(
         [snap.position.x, snap.position.y, snap.position.z],
         [snap.rotation.x * (180 / Math.PI), snap.rotation.y * (180 / Math.PI), snap.rotation.z * (180 / Math.PI)]
       );
-    } else {
-      console.log('Cannot place - snap invalid or null');
     }
   };
 
   if (!snap) return null;
 
-  // Create a temporary component to render as ghost
-  const ghostComponent: PipelineComponent = {
+  const ghostComponent = {
     id: 'ghost',
     component_type: placingType,
     position_x: snap.position.x,
@@ -66,15 +46,12 @@ const PlacementGhost = ({
 
   return (
     <group>
-      {/* Visual ghost component */}
       <PipeComponent
         component={ghostComponent}
         isSelected={false}
-        onSelect={() => handleClick({ stopPropagation: () => { } } as any)}
+        onSelect={() => handleClick({ stopPropagation: () => { } })}
         onUpdate={() => { }}
       />
-
-      {/* Visual indicator for validity */}
       <mesh position={snap.position} onClick={handleClick}>
         <sphereGeometry args={[0.3, 16, 16]} />
         <meshBasicMaterial color={snap.isValid ? '#4caf50' : '#f44336'} transparent opacity={0.7} />
@@ -87,10 +64,6 @@ const EditorControls = ({
   selectedId,
   components,
   onUpdateComponent
-}: {
-  selectedId: string | null,
-  components: PipelineComponent[],
-  onUpdateComponent: (c: PipelineComponent) => void
 }) => {
   const { scene } = useThree();
   const selectedObject = selectedId ? scene.getObjectByName(selectedId) : undefined;
@@ -103,7 +76,6 @@ const EditorControls = ({
       mode="translate"
       size={0.4}
       onMouseUp={(e) => {
-        // @ts-ignore
         const object = e.target.object;
         if (object) {
           const component = components.find(c => c.id === selectedId);
@@ -129,7 +101,7 @@ export default function Scene3D({
   onPlaceComponent,
   onCancelPlacement,
   onUpdateComponent,
-}: Scene3DProps) {
+}) {
   return (
     <Canvas
       gl={{ preserveDrawingBuffer: true }}
@@ -137,7 +109,7 @@ export default function Scene3D({
       style={{ background: '#1a1a2e', cursor: placingType ? 'crosshair' : 'default' }}
       onPointerMissed={(e) => {
         if (e.type === 'click' && placingType) {
-          // Optional: handle click on empty space (handled by PlacementGhost usually)
+          // Optional: handle click on empty space
         } else if (e.type === 'click') {
           onSelectComponent(null);
         } else if (e.type === 'contextmenu') {
@@ -149,7 +121,6 @@ export default function Scene3D({
       <directionalLight position={[10, 10, 5]} intensity={1} />
       <directionalLight position={[-10, -10, -5]} intensity={0.3} />
 
-      {/* Invisible floor to catch clicks for deselection */}
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
         position={[0, -0.02, 0]}

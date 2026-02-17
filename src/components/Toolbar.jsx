@@ -1,16 +1,6 @@
 import { Save, Plus, Info } from 'lucide-react';
 
-interface ToolbarProps {
-  designName: string;
-  onSave: () => void;
-  onNewDesign: () => void;
-  componentCount: number;
-  totalCost: number;
-  onShowMaterials: () => void;
-}
-
-
-export default function Toolbar({ designName, onSave, onNewDesign, componentCount, totalCost, onShowMaterials }: ToolbarProps) {
+export default function Toolbar({ designName, onSave, onNewDesign, componentCount, totalCost, onShowMaterials }) {
   return (
     <div className="h-16 bg-gray-900 border-b border-gray-700 flex items-center justify-between px-6">
       <div className="flex items-center gap-4">
@@ -31,8 +21,8 @@ export default function Toolbar({ designName, onSave, onNewDesign, componentCoun
           </div>
           <div className="h-4 w-px bg-gray-600" />
           <div className="flex items-center gap-2">
-            <Info size={16} className="text-blue-400" />
             <span className="text-gray-300 text-sm">{componentCount} items</span>
+            <Info size={16} className="text-blue-400" />
           </div>
         </button>
 

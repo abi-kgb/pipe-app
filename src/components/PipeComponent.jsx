@@ -1,30 +1,20 @@
 import { useRef } from 'react';
-import { Mesh } from 'three';
-import { PipelineComponent } from '../types/pipeline';
 import BoundingBoxGizmo from './BoundingBoxGizmo';
 
-interface PipeComponentProps {
-  component: PipelineComponent;
-  isSelected: boolean;
-  onSelect: () => void;
-  onUpdate: (component: PipelineComponent) => void;
-}
+export default function PipeComponent({ component, isSelected, onSelect, onUpdate }) {
+  const meshRef = useRef(null);
 
-export default function PipeComponent({ component, isSelected, onSelect, onUpdate }: PipeComponentProps) {
-  const meshRef = useRef<Mesh>(null);
-
-  // Dynamic properties
-  const length = (component.properties?.length as number) || 2;
-  const radiusScale = (component.properties?.radiusScale as number) || 1;
+  const length = component.properties?.length || 2;
+  const radiusScale = component.properties?.radiusScale || 1;
   const radius = 0.15 * radiusScale;
 
-  const position: [number, number, number] = [
+  const position = [
     component.position_x,
     component.position_y,
     component.position_z,
   ];
 
-  const rotation: [number, number, number] = [
+  const rotation = [
     (component.rotation_x * Math.PI) / 180,
     (component.rotation_y * Math.PI) / 180,
     (component.rotation_z * Math.PI) / 180,
@@ -126,9 +116,8 @@ export default function PipeComponent({ component, isSelected, onSelect, onUpdat
           </group>
         );
       case 'tank':
-        // Tank uses length as height
         const tankHeight = length;
-        const tankRadius = 1 * radiusScale; // Base tank radius is 1, scaled
+        const tankRadius = 1 * radiusScale;
         return (
           <group>
             <mesh>
@@ -191,7 +180,6 @@ export default function PipeComponent({ component, isSelected, onSelect, onUpdat
         roughness={0.4}
       />
 
-      {/* Bounding Box Gizmo */}
       {isSelected && (
         <BoundingBoxGizmo
           component={component}
@@ -201,4 +189,3 @@ export default function PipeComponent({ component, isSelected, onSelect, onUpdat
     </mesh>
   );
 }
-
