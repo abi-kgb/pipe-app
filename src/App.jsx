@@ -4,6 +4,7 @@ import ComponentLibrary from './components/ComponentLibrary';
 import Toolbar from './components/Toolbar';
 import { calculateTotalCost } from './utils/pricing';
 import MaterialsList from './components/MaterialsList';
+import html2canvas from 'html2canvas';
 
 function App() {
   const [components, setComponents] = useState([]);
@@ -12,6 +13,7 @@ function App() {
   const [designName, setDesignName] = useState('Untitled Design');
   const [clipboard, setClipboard] = useState(null);
   const [showMaterials, setShowMaterials] = useState(false);
+  const [transformMode, setTransformMode] = useState('translate');
 
   const totalCost = calculateTotalCost(components);
 
@@ -61,28 +63,34 @@ function App() {
 
 
 
-  const handleSaveDesign = () => {
+  const handleSaveDesign = async () => {
     try {
-      const canvas = document.querySelector('canvas');
-      if (!canvas) {
-        alert('Could not find 3D view to capture.');
+      const container = document.getElementById('multi-view-container');
+      if (!container) {
+        alert('Could not find multi-view container to capture.');
         return;
       }
 
-      const imgData = canvas.toDataURL('image/png');
+      const canvas = await html2canvas(container, {
+        backgroundColor: '#f8fafc',
+        scale: 2, // High resolution
+        useCORS: true,
+        logging: false
+      });
 
+      const imgData = canvas.toDataURL('image/png');
       const link = document.createElement('a');
       link.href = imgData;
-      link.download = `${designName || 'design'}.png`;
+      link.download = `${designName || 'design'}_all_views.png`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
 
-      alert('Design saved as Image!');
+      alert('All views saved as high-res image!');
 
     } catch (error) {
       console.error('Error saving image:', error);
-      alert('Failed to save image.');
+      alert('Failed to save multi-view image.');
     }
   };
 
@@ -99,6 +107,9 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
+      // Ignore if user is typing in an input (like the rename field)
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
         handleDeleteComponent(selectedId);
       }
@@ -106,6 +117,12 @@ function App() {
       if (e.key === 'Escape') {
         handleCancelPlacement();
         setSelectedId(null);
+      }
+
+      if (e.key.toLowerCase() === 't') {
+        setTransformMode('translate');
+      } else if (e.key.toLowerCase() === 'r') {
+        setTransformMode('rotate');
       }
 
       if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selectedId) {
@@ -135,9 +152,10 @@ function App() {
   }, [selectedId, handleCancelPlacement, handleDeleteComponent, components, clipboard]);
 
   return (
-    <div className="h-screen flex flex-col bg-gray-950">
+    <div className="h-screen flex flex-col bg-[#f0f9ff] text-slate-900 selection:bg-blue-200">
       <Toolbar
         designName={designName}
+        onRename={setDesignName}
         onSave={handleSaveDesign}
         onNewDesign={handleNewDesign}
         componentCount={components.length}
@@ -147,6 +165,7 @@ function App() {
 
       {showMaterials && (
         <MaterialsList
+          designName={designName}
           components={components}
           onClose={() => setShowMaterials(false)}
         />
@@ -154,9 +173,13 @@ function App() {
 
       <div className="flex-1 flex overflow-hidden">
         <ComponentLibrary
+          components={components}
+          onUpdate={handleUpdateComponent}
           onAddComponent={handleAddComponent}
           selectedId={selectedId}
           onDelete={() => selectedId && handleDeleteComponent(selectedId)}
+          transformMode={transformMode}
+          onSetTransformMode={setTransformMode}
         />
 
         <div className="flex-1">
@@ -168,6 +191,9 @@ function App() {
             onPlaceComponent={handlePlaceComponent}
             onCancelPlacement={handleCancelPlacement}
             onUpdateComponent={handleUpdateComponent}
+            transformMode={transformMode}
+            onSetTransformMode={setTransformMode}
+            designName={designName}
           />
         </div>
       </div>

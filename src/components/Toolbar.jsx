@@ -1,45 +1,58 @@
 import { Save, Plus, Info } from 'lucide-react';
 
-export default function Toolbar({ designName, onSave, onNewDesign, componentCount, totalCost, onShowMaterials }) {
+export default function Toolbar({ designName, onRename, onSave, onNewDesign, componentCount, totalCost, onShowMaterials }) {
   return (
-    <div className="h-16 bg-gray-900 border-b border-gray-700 flex items-center justify-between px-6">
-      <div className="flex items-center gap-4">
-        <h1 className="text-white font-bold text-xl">Aqua Pipeline 3D</h1>
-        <div className="h-6 w-px bg-gray-700" />
-        <span className="text-gray-400 text-sm">{designName}</span>
+    <div className="h-16 bg-white/70 backdrop-blur-xl border-b border-blue-100/50 flex items-center justify-between px-6 z-10 shadow-sm">
+      <div className="flex items-center gap-4 group/name">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-blue-700 rounded-lg flex items-center justify-center shadow-md">
+            <div className="w-4 h-4 border-2 border-white rounded-sm rotate-45" />
+          </div>
+          <h1 className="text-slate-900 font-bold text-xl tracking-tight uppercase">Aqua <span className="text-blue-700 italic">Pro</span></h1>
+        </div>
+        <div className="h-6 w-px bg-blue-100" />
+        <div className="relative flex items-center">
+          <input
+            type="text"
+            value={designName}
+            onChange={(e) => onRename(e.target.value)}
+            className="bg-transparent text-slate-900 text-xs font-semibold uppercase tracking-widest px-2 py-1 rounded border border-transparent hover:border-blue-100 focus:border-blue-300 focus:bg-white/50 focus:outline-none transition-all w-48"
+            placeholder="Project Name..."
+          />
+        </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         <button
           onClick={onShowMaterials}
-          className="flex items-center gap-6 px-4 py-2 bg-gray-800 hover:bg-gray-700 transition-colors rounded-lg mr-4 group"
+          className="flex items-center gap-6 px-4 py-2 bg-white/50 hover:bg-white border border-blue-100 transition-all rounded-xl mr-4 group shadow-inner"
           title="View Bill of Materials"
         >
           <div className="flex items-center gap-2">
-            <span className="text-green-400 font-bold text-lg">₹{totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            <span className="text-gray-500 text-xs uppercase tracking-wider font-semibold group-hover:text-gray-300 transition-colors">Total Cost</span>
+            <span className="text-slate-900 font-bold text-lg tabular-nums">₹{totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            <span className="text-slate-400 text-[10px] uppercase tracking-wider font-bold group-hover:text-blue-600 transition-colors">Estimate</span>
           </div>
-          <div className="h-4 w-px bg-gray-600" />
+          <div className="h-4 w-px bg-blue-100" />
           <div className="flex items-center gap-2">
-            <span className="text-gray-300 text-sm">{componentCount} items</span>
-            <Info size={16} className="text-blue-400" />
+            <span className="text-slate-600 text-sm font-medium">{componentCount} items</span>
+            <Info size={14} className="text-slate-400 group-hover:text-blue-600 transition-colors" />
           </div>
         </button>
 
         <button
           onClick={onNewDesign}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-white/80 hover:bg-white text-slate-700 rounded-xl border border-blue-100 transition-all active:scale-95 shadow-sm"
         >
-          <Plus size={18} />
-          <span className="text-sm">New</span>
+          <Plus size={18} className="text-slate-400" />
+          <span className="text-sm font-semibold">New</span>
         </button>
 
         <button
           onClick={onSave}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+          className="flex items-center gap-2 px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl shadow-md shadow-blue-900/10 transition-all active:scale-95 border border-blue-600"
         >
           <Save size={18} />
-          <span className="text-sm">Save</span>
+          <span className="text-sm font-bold uppercase tracking-tight">Export PDF/IMG</span>
         </button>
       </div>
     </div>

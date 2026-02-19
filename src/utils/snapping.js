@@ -4,23 +4,62 @@ import { COMPONENT_DEFINITIONS } from '../config/componentDefinitions';
 export const findSnapPoint = (
     raycaster,
     components,
-    placingType
+    placingType,
+    viewMode = 'iso'
 ) => {
-    if (components.length === 0) {
-        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-        const target = new THREE.Vector3();
-        const intersect = raycaster.ray.intersectPlane(plane, target);
+    const getDynamicSocketPos = (component, socket) => {
+        const length = component.properties?.length || 2;
+        const radiusScale = component.properties?.radiusScale || 1;
+        const pos = socket.position.clone();
 
-        if (intersect) {
-            target.x = Math.round(target.x);
-            target.z = Math.round(target.z);
-            return {
-                position: target,
-                rotation: new THREE.Euler(0, 0, 0),
-                isValid: true,
-            };
+        // Adjust positions based on component type and dynamic properties
+        switch (component.component_type) {
+            case 'straight':
+            case 'vertical':
+                // For straight pipes, Y position is half the length
+                pos.y = (length / 2) * (socket.position.y > 0 ? 1 : -1);
+                break;
+            case 'elbow':
+            case 'elbow-45':
+            case 't-joint':
+            case 'valve':
+            case 'filter':
+            case 'tank':
+            case 'cap':
+                // Most fittings scale uniformly with radiusScale
+                pos.multiplyScalar(radiusScale);
+                break;
         }
-        return { position: new THREE.Vector3(), rotation: new THREE.Euler(), isValid: false };
+        return pos;
+    };
+
+    // --- Ground/Background Placement Fallback ---
+    // Top and ISO use Y=0 ground. Front uses Z=0 vertical plane.
+    const fallbackPlane = (viewMode === 'front')
+        ? new THREE.Plane(new THREE.Vector3(0, 0, 1), 0) // Front view: Z=0
+        : new THREE.Plane(new THREE.Vector3(0, 1, 0), 0); // Others: Y=0
+
+    const fallbackTarget = new THREE.Vector3();
+    const hasFallbackIntersect = raycaster.ray.intersectPlane(fallbackPlane, fallbackTarget);
+
+    const getFallbackSnap = () => {
+        if (!hasFallbackIntersect) return null;
+        const target = fallbackTarget.clone();
+
+        // Grid snapping
+        target.x = Math.round(target.x);
+        target.y = Math.round(target.y);
+        target.z = Math.round(target.z);
+
+        return {
+            position: target,
+            rotation: new THREE.Euler(0, 0, 0),
+            isValid: true,
+        };
+    };
+
+    if (components.length === 0) {
+        return getFallbackSnap() || { position: new THREE.Vector3(), rotation: new THREE.Euler(), isValid: false };
     }
 
     let closestDist = Infinity;
@@ -42,10 +81,10 @@ export const findSnapPoint = (
         const compQuat = new THREE.Quaternion().setFromEuler(compRot);
 
         for (const socket of def.sockets) {
-            const socketPos = socket.position.clone().applyQuaternion(compQuat).add(compPos);
+            const socketPos = getDynamicSocketPos(component, socket).applyQuaternion(compQuat).add(compPos);
             const distanceToRay = raycaster.ray.distanceSqToPoint(socketPos);
 
-            if (distanceToRay < 9 && distanceToRay < closestDist) {
+            if (distanceToRay < 4 && distanceToRay < closestDist) {
                 closestDist = distanceToRay;
 
                 const targetDir = socket.direction.clone().applyQuaternion(compQuat).normalize();
@@ -54,7 +93,9 @@ export const findSnapPoint = (
                 const alignQuat = new THREE.Quaternion().setFromUnitVectors(placingDir, targetDir.clone().negate());
                 const finalRot = new THREE.Euler().setFromQuaternion(alignQuat);
 
-                const offset = placingSocket.position.clone().applyQuaternion(alignQuat);
+                // For the placing ghost, we use default properties (radiusScale=1, length=2)
+                const ghostSocketPos = getDynamicSocketPos({ component_type: placingType }, placingSocket);
+                const offset = ghostSocketPos.applyQuaternion(alignQuat);
                 const finalPos = socketPos.clone().sub(offset);
 
                 bestSnap = {
@@ -67,5 +108,5 @@ export const findSnapPoint = (
         }
     }
 
-    return bestSnap;
+    return bestSnap.isValid ? bestSnap : (getFallbackSnap() || bestSnap);
 };
