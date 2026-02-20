@@ -260,17 +260,17 @@ function StableResetButton({ onReset }) {
 // COMPONENT: ViewportCameraControls
 // ---------------------------------------------------------
 const ViewportCameraControls = ({ viewMode, setResetHandler, selectedId, components }) => {
+  const prevSelectedId = useRef(null);
   const controlsRef = useRef();
 
   const handleReset = useCallback(() => {
     if (controlsRef.current) {
       if (viewMode === 'front') {
         controlsRef.current.setLookAt(0, 0, 100, 0, 0, 0, true);
-        controlsRef.current.zoomTo(60, true);
+        controlsRef.current.zoomTo(15, true);
       } else if (viewMode === 'top') {
         controlsRef.current.setLookAt(0, 100, 0, 0, 0, 0, true);
-        controlsRef.current.zoomTo(40, true);
-        controlsRef.current.rotate(0, 0, true);
+        controlsRef.current.zoomTo(15, true);
       } else {
         controlsRef.current.setLookAt(30, 30, 30, 0, 0, 0, true);
       }
@@ -279,19 +279,26 @@ const ViewportCameraControls = ({ viewMode, setResetHandler, selectedId, compone
 
   // Sync camera when selection changes
   useEffect(() => {
-    if (selectedId && components && controlsRef.current) {
+    // Only jump if the selection actually CHANGED, not if a selected item is being moved
+    if (selectedId && selectedId !== prevSelectedId.current && components && controlsRef.current) {
       const selectedComp = components.find(c => c.id === selectedId);
       if (selectedComp) {
-        const targetX = selectedComp.position_x || 0;
-        const targetY = selectedComp.position_y || 0;
-        const targetZ = selectedComp.position_z || 0;
+        const tx = selectedComp.position_x || 0;
+        const ty = selectedComp.position_y || 0;
+        const tz = selectedComp.position_z || 0;
 
-        // Move camera target to the selected component
-        // We use moveTo to preserve current orientation but change the focus point
-        controlsRef.current.moveTo(targetX, targetY, targetZ, true);
+        // In 2D views, moving the target effectively centers the object
+        if (viewMode === 'top') {
+          controlsRef.current.setLookAt(tx, 100, tz, tx, ty, tz, true);
+        } else if (viewMode === 'front') {
+          controlsRef.current.setLookAt(tx, ty, 100, tx, ty, tz, true);
+        } else {
+          controlsRef.current.moveTo(tx, ty, tz, true);
+        }
       }
     }
-  }, [selectedId, components]);
+    prevSelectedId.current = selectedId;
+  }, [selectedId, components, viewMode]);
 
   useEffect(() => {
     setResetHandler(() => handleReset);
@@ -303,8 +310,11 @@ const ViewportCameraControls = ({ viewMode, setResetHandler, selectedId, compone
         ref={controlsRef}
         makeDefault
         dollyToCursor
-        mouseButtons={viewMode !== 'iso' ? { left: 2, middle: 0, right: 0, wheel: 8 } : undefined}
+        dollyMode="zoom"
+        mouseButtons={viewMode !== 'iso' ? { left: 2, middle: 0, right: 0, wheel: 16 } : { left: 1, middle: 0, right: 2, wheel: 16 }}
         enableRotate={viewMode === 'iso'}
+        minZoom={0.01}
+        maxZoom={100}
       />
     </>
   );
@@ -395,7 +405,7 @@ export default function Scene3D({
       >
         <ViewportLabel text={config.label} color={config.labelColor} textColor={config.labelTextColor} onDragStart={(e) => e.dataTransfer.setData('text/plain', viewId)} viewId={viewId} />
         <StableResetButton onReset={() => resetHandlers.current[viewId]?.()} />
-        {viewId === 'iso' && <TitleBlock designName={designName} />}
+        {index === 0 && <TitleBlock designName={designName} />}
         <SceneErrorBoundary key={viewId}>
           <Canvas gl={{ antialias: true, preserveDrawingBuffer: true }} shadows onPointerMissed={() => onSelectComponent(null)}>
             {config.camera === 'ortho' ? (

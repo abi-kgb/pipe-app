@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Package, ArrowRight, ArrowUp, Circle, Filter, Droplets, GitBranch, Slash, StopCircle, Trash2, Move, RotateCcw, Scaling, Disc, Hash, Plus, Link, Square } from 'lucide-react';
+import { Package, ArrowRight, ArrowUp, Circle, Filter, Droplets, GitBranch, Slash, StopCircle, Trash2, Move, RotateCcw, Scaling, Disc, Hash, Plus, Link, Square, Cylinder, Cuboid, Cone } from 'lucide-react';
 import { COMPONENT_DEFINITIONS, MATERIALS } from '../config/componentDefinitions';
 
 const LIBRARY_PARTS = [
@@ -18,6 +18,9 @@ const LIBRARY_PARTS = [
   { type: 'tank', label: 'Tank', icon: <Droplets size={20} />, color: '#2563eb' },
   { type: 'cap', label: 'End Cap', icon: <StopCircle size={20} />, color: '#757575' },
   { type: 'plug', label: 'Plug', icon: <Square size={20} />, color: '#757575' },
+  { type: 'cylinder', label: 'Cylinder Solid', icon: <Cylinder size={20} />, color: '#6366f1' },
+  { type: 'cube', label: 'Cube Solid', icon: <Cuboid size={20} />, color: '#8b5cf6' },
+  { type: 'cone', label: 'Cone Solid', icon: <Cone size={20} />, color: '#d946ef' },
 ];
 
 export default function ComponentLibrary({

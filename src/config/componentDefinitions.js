@@ -178,4 +178,38 @@ export const COMPONENT_DEFINITIONS = {
             { position: new THREE.Vector3(0, -0.15, 0), direction: new THREE.Vector3(0, -1, 0) },
         ],
     },
+    cylinder: {
+        type: 'cylinder',
+        weightFactor: 0.15, // Solider than pipe
+        defaultMaterial: 'steel',
+        defaultOD: 1.0,
+        sockets: [
+            { position: new THREE.Vector3(0, 1, 0), direction: new THREE.Vector3(0, 1, 0) },
+            { position: new THREE.Vector3(0, -1, 0), direction: new THREE.Vector3(0, -1, 0) },
+        ],
+    },
+    cube: {
+        type: 'cube',
+        weightFactor: 0.2,
+        defaultMaterial: 'steel',
+        defaultOD: 1.0,
+        sockets: [
+            { position: new THREE.Vector3(1, 0, 0), direction: new THREE.Vector3(1, 0, 0) },
+            { position: new THREE.Vector3(-1, 0, 0), direction: new THREE.Vector3(-1, 0, 0) },
+            { position: new THREE.Vector3(0, 1, 0), direction: new THREE.Vector3(0, 1, 0) },
+            { position: new THREE.Vector3(0, -1, 0), direction: new THREE.Vector3(0, -1, 0) },
+            { position: new THREE.Vector3(0, 0, 1), direction: new THREE.Vector3(0, 0, 1) },
+            { position: new THREE.Vector3(0, 0, -1), direction: new THREE.Vector3(0, 0, -1) },
+        ],
+    },
+    cone: {
+        type: 'cone',
+        weightFactor: 0.1,
+        defaultMaterial: 'steel',
+        defaultOD: 1.0,
+        sockets: [
+            { position: new THREE.Vector3(0, 1, 0), direction: new THREE.Vector3(0, 1, 0) }, // Tip
+            { position: new THREE.Vector3(0, 0, 0), direction: new THREE.Vector3(0, -1, 0) }, // Base (center)
+        ],
+    },
 };

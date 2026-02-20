@@ -279,6 +279,22 @@ export const calculateComponentWeight = (component) => {
             volume = baseVol * Math.pow(sizeScale, 3);
             break;
 
+        case 'cylinder':
+            // Solid cylinder volume = PI * r² * h
+            volume = Math.PI * Math.pow(radiusOuter, 2) * length;
+            break;
+
+        case 'cube':
+            // Solid cube volume = s³
+            volume = Math.pow(od, 3);
+            break;
+
+        case 'cone':
+            // Solid cone volume = (1/3) * PI * r² * h
+            // We use radiusScale as the height in our coneGeometry
+            volume = (1 / 3) * Math.PI * Math.pow(radiusOuter, 2) * (1 * radiusScale);
+            break;
+
         default:
             volume = crossSectionArea * length;
     }

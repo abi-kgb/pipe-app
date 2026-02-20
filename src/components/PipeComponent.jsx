@@ -48,11 +48,25 @@ export default function PipeComponent({
   const materialKey = component.properties?.material || 'steel';
   const material = MATERIALS[materialKey] || MATERIALS.steel;
 
+  const SOLID_COLORS = {
+    cylinder: '#6366f1',
+    cube: '#8b5cf6',
+    cone: '#d946ef'
+  };
+
   const getMaterial = (type, isSelected) => {
+    // Determine base color
+    let baseColor = material.color;
+
+    // If it's a solid and the material is default (steel), use a distinct color
+    if (SOLID_COLORS[type] && materialKey === 'steel') {
+      baseColor = SOLID_COLORS[type];
+    }
+
     if (is2D && !isGhost) {
       // Schematic style
       const strokeColor = isSelected ? '#1d4ed8' : '#2563eb';
-      const fillColor = isSelected ? '#dbeafe' : material.color;
+      const fillColor = isSelected ? '#dbeafe' : baseColor;
       return (
         <meshStandardMaterial
           color={fillColor}
@@ -64,7 +78,6 @@ export default function PipeComponent({
       );
     }
 
-    let color = material.color;
     const isPlastic = ['pvc', 'cpvc', 'upvc', 'hdpe'].includes(materialKey);
     const isSpecialMetal = ['copper', 'brass', 'ss316'].includes(materialKey);
 
@@ -85,7 +98,7 @@ export default function PipeComponent({
 
     return (
       <meshStandardMaterial
-        color={isSelected ? '#1d4ed8' : color}
+        color={isSelected ? '#1d4ed8' : baseColor}
         metalness={isSelected ? 0.4 : metalness}
         roughness={isSelected ? 0.2 : roughness}
         emissive={isSelected ? '#1d4ed8' : '#000000'}
@@ -614,12 +627,33 @@ export default function PipeComponent({
             </mesh>
           </group>
         );
+      case 'cylinder':
+        return (
+          <mesh>
+            <cylinderGeometry args={[radiusOuter, radiusOuter, length, 32]} />
+            {getMaterial('cylinder', isSelected)}
+          </mesh>
+        );
+      case 'cube':
+        return (
+          <mesh>
+            <boxGeometry args={[od, od, od]} />
+            {getMaterial('cube', isSelected)}
+          </mesh>
+        );
+      case 'cone':
+        return (
+          <mesh position={[0, -0.5 * radiusScale, 0]}>
+            <coneGeometry args={[radiusOuter, 1 * radiusScale, 32]} />
+            {getMaterial('cone', isSelected)}
+          </mesh>
+        );
       default:
         return <cylinderGeometry args={[radius, radius, length, 16]} />;
     }
   };
 
-  const isComplex = ['elbow', 'elbow-45', 't-joint', 'cross', 'valve', 'filter', 'tank', 'cap', 'reducer', 'flange', 'union', 'coupling', 'plug'].includes(component.component_type);
+  const isComplex = ['elbow', 'elbow-45', 't-joint', 'cross', 'valve', 'filter', 'tank', 'cap', 'reducer', 'flange', 'union', 'coupling', 'plug', 'cylinder', 'cube', 'cone'].includes(component.component_type);
 
   const Label = () => {
     if (!isHovered || isGhost) return null;
