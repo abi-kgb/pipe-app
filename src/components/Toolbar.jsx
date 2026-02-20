@@ -6,9 +6,13 @@ export default function Toolbar({ designName, onRename, onSave, onNewDesign, com
   return (
     <div className="h-24 bg-white/70 backdrop-blur-xl border-b border-blue-100/50 flex items-center justify-between px-6 z-10 shadow-sm">
       <div className="flex items-center gap-4 group/name">
-        <div className="flex items-center">
-          <div className="flex items-center justify-center">
-            <img src={logo} alt="Pipe3D PRO Branding" className="h-24 w-auto object-contain scale-150 translate-x-2" />
+        <div className="flex items-center gap-2">
+          <div className="flex items-center justify-center bg-blue-700 text-white font-black px-3 py-1 rounded-lg text-lg tracking-tighter shadow-lg shadow-blue-500/20 italic">
+            P3D
+          </div>
+          <div className="flex flex-col">
+            <span className="text-slate-900 font-black text-xl leading-none tracking-tight">Pipe3D <span className="text-blue-600 italic">PRO</span></span>
+            <span className="text-slate-400 text-[8px] font-bold tracking-[0.3em] ml-0.5 uppercase">Engineering Excellence</span>
           </div>
         </div>
         <div className="h-10 w-px bg-blue-100" />
