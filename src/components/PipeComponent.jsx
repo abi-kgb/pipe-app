@@ -65,8 +65,11 @@ export default function PipeComponent({
     }
 
     let color = material.color;
-    let metalness = materialKey === 'ss' ? 0.9 : 0.6;
-    let roughness = materialKey === 'ss' ? 0.1 : 0.3;
+    const isPlastic = ['pvc', 'cpvc', 'upvc', 'hdpe'].includes(materialKey);
+    const isSpecialMetal = ['copper', 'brass', 'ss316'].includes(materialKey);
+
+    let metalness = isPlastic ? 0 : (isSpecialMetal ? 0.9 : 0.6);
+    let roughness = isPlastic ? 0.8 : (isSpecialMetal ? 0.1 : 0.3);
 
     if (isGhost) {
       return (
@@ -470,12 +473,153 @@ export default function PipeComponent({
             </mesh>
           </group>
         );
+      case 'reducer':
+        return (
+          <group>
+            {/* Conical body */}
+            <mesh>
+              <cylinderGeometry args={[radius, radius * 0.6, 0.8 * radiusScale, 32, 1, true]} />
+              {getMaterial('reducer', isSelected)}
+            </mesh>
+            <mesh scale={[1, 1, 1]}>
+              <cylinderGeometry args={[radiusInner, radiusInner * 0.6, 0.8 * radiusScale, 32, 1, true]} />
+              <meshStandardMaterial color="#222" side={THREE.BackSide} />
+            </mesh>
+            {/* End rings */}
+            <mesh position={[0, 0.4 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[radiusInner * 0.6, radius * 0.6, 32]} />
+              {getMaterial('reducer', isSelected)}
+            </mesh>
+            <mesh position={[0, -0.4 * radiusScale, 0]} rotation={[Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[radiusInner, radius, 32]} />
+              {getMaterial('reducer', isSelected)}
+            </mesh>
+          </group>
+        );
+      case 'flange':
+        return (
+          <group>
+            {/* Main disc */}
+            <mesh>
+              <cylinderGeometry args={[radius * 1.8, radius * 1.8, 0.2 * radiusScale, 32]} />
+              {getMaterial('flange', isSelected)}
+            </mesh>
+            {/* Hub */}
+            <mesh position={[0, 0.15 * radiusScale, 0]}>
+              <cylinderGeometry args={[radius, radius, 0.1 * radiusScale, 32]} />
+              {getMaterial('flange', isSelected)}
+            </mesh>
+            {/* Bolt holes (visual simplification: ring) */}
+            {!is2D && (
+              <mesh position={[0, 0.105 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                <ringGeometry args={[radius * 1.4, radius * 1.6, 32]} />
+                <meshBasicMaterial color="#333" transparent opacity={0.3} />
+              </mesh>
+            )}
+          </group>
+        );
+      case 'union':
+        return (
+          <group>
+            {/* Threaded ends */}
+            <mesh position={[0, 0.15 * radiusScale, 0]}>
+              <cylinderGeometry args={[radius, radius, 0.3 * radiusScale, 32]} />
+              {getMaterial('union', isSelected)}
+            </mesh>
+            <mesh position={[0, -0.15 * radiusScale, 0]}>
+              <cylinderGeometry args={[radius, radius, 0.3 * radiusScale, 32]} />
+              {getMaterial('union', isSelected)}
+            </mesh>
+            {/* Center Nut */}
+            <mesh>
+              <cylinderGeometry args={[radius * 1.3, radius * 1.3, 0.2 * radiusScale, 6]} />
+              {is2D ? getMaterial('union', isSelected) : <meshStandardMaterial color="#475569" metalness={0.8} />}
+            </mesh>
+          </group>
+        );
+      case 'cross':
+        return (
+          <group>
+            {/* Main Pass-through (Vertical) */}
+            <mesh>
+              <cylinderGeometry args={[radiusOuter, radiusOuter, 2 * radiusScale, 32, 1, true]} />
+              {getMaterial('cross', isSelected)}
+            </mesh>
+            <mesh scale={[1, 1, 1]}>
+              <cylinderGeometry args={[radiusInner, radiusInner, 2 * radiusScale, 32, 1, true]} />
+              <meshStandardMaterial color="#222" side={THREE.BackSide} />
+            </mesh>
+            {/* Cross Branch (Horizontal) */}
+            <mesh rotation={[0, 0, Math.PI / 2]}>
+              <cylinderGeometry args={[radiusOuter, radiusOuter, 2 * radiusScale, 32, 1, true]} />
+              {getMaterial('cross', isSelected)}
+            </mesh>
+            <mesh rotation={[0, 0, Math.PI / 2]}>
+              <cylinderGeometry args={[radiusInner, radiusInner, 2 * radiusScale, 32, 1, true]} />
+              <meshStandardMaterial color="#222" side={THREE.BackSide} />
+            </mesh>
+            {/* Joint Symbols */}
+            {[
+              [0, 1, 0, -Math.PI / 2, 0, 0],
+              [0, -1, 0, Math.PI / 2, 0, 0],
+              [1, 0, 0, 0, Math.PI / 2, 0],
+              [-1, 0, 0, 0, -Math.PI / 2, 0]
+            ].map((p, i) => (
+              <mesh key={i} position={[p[0] * radiusScale, p[1] * radiusScale, 0.01]} rotation={[p[3], p[4], p[5]]}>
+                <ringGeometry args={[radiusOuter, radiusOuter + 0.05, 32]} />
+                <meshBasicMaterial color="#94a3b8" transparent opacity={0.5} />
+              </mesh>
+            ))}
+          </group>
+        );
+      case 'coupling':
+        return (
+          <group>
+            {/* Main body */}
+            <mesh>
+              <cylinderGeometry args={[radiusOuter, radiusOuter, 0.5 * radiusScale, 32, 1, true]} />
+              {getMaterial('coupling', isSelected)}
+            </mesh>
+            <mesh>
+              <cylinderGeometry args={[radiusInner, radiusInner, 0.5 * radiusScale, 32, 1, true]} />
+              <meshStandardMaterial color="#222" side={THREE.BackSide} />
+            </mesh>
+            {/* Center band */}
+            <mesh>
+              <cylinderGeometry args={[radiusOuter + 0.02, radiusOuter + 0.02, 0.1 * radiusScale, 32]} />
+              <meshStandardMaterial color="#475569" />
+            </mesh>
+            <mesh position={[0, 0.25 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+              {getMaterial('coupling', isSelected)}
+            </mesh>
+            <mesh position={[0, -0.25 * radiusScale, 0]} rotation={[Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+              {getMaterial('coupling', isSelected)}
+            </mesh>
+          </group>
+        );
+      case 'plug':
+        return (
+          <group>
+            {/* Hex head */}
+            <mesh position={[0, 0.05 * radiusScale, 0]}>
+              <cylinderGeometry args={[radius * 1.2, radius * 1.2, 0.1 * radiusScale, 6]} />
+              {getMaterial('plug', isSelected)}
+            </mesh>
+            {/* Body */}
+            <mesh position={[0, -0.1 * radiusScale, 0]}>
+              <cylinderGeometry args={[radius, radius, 0.2 * radiusScale, 32]} />
+              <meshStandardMaterial color="#475569" />
+            </mesh>
+          </group>
+        );
       default:
         return <cylinderGeometry args={[radius, radius, length, 16]} />;
     }
   };
 
-  const isComplex = ['elbow', 'elbow-45', 't-joint', 'valve', 'filter', 'tank', 'cap'].includes(component.component_type);
+  const isComplex = ['elbow', 'elbow-45', 't-joint', 'cross', 'valve', 'filter', 'tank', 'cap', 'reducer', 'flange', 'union', 'coupling', 'plug'].includes(component.component_type);
 
   const Label = () => {
     if (!isHovered || isGhost) return null;

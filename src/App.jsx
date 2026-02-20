@@ -5,6 +5,8 @@ import Toolbar from './components/Toolbar';
 import { calculateTotalCost } from './utils/pricing';
 import MaterialsList from './components/MaterialsList';
 import html2canvas from 'html2canvas';
+import ResizablePane from './components/ResizablePane';
+import { jsPDF } from 'jspdf';
 
 function App() {
   const [components, setComponents] = useState([]);
@@ -65,32 +67,81 @@ function App() {
 
   const handleSaveDesign = async () => {
     try {
-      const container = document.getElementById('multi-view-container');
-      if (!container) {
-        alert('Could not find multi-view container to capture.');
-        return;
+      const views = [
+        { id: 'viewport-canvas-iso', name: 'Perspective ISO View' },
+        { id: 'viewport-canvas-top', name: 'Plan View (Top)' },
+        { id: 'viewport-canvas-front', name: 'Elevation View (Front/Side)' }
+      ];
+
+      const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+
+      for (let i = 0; i < views.length; i++) {
+        const view = views[i];
+        const container = document.getElementById(view.id);
+
+        if (!container) continue;
+
+        if (i > 0) pdf.addPage('landscape', 'mm', 'a4');
+
+        // Capture high-res view
+        const canvas = await html2canvas(container, {
+          backgroundColor: '#f8fafc',
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          ignoreElements: (el) => el.hasAttribute('data-html2canvas-ignore')
+        });
+
+        const imgData = canvas.toDataURL('image/png');
+
+        // Engineering Border
+        pdf.setDrawColor(30, 58, 138);
+        pdf.setLineWidth(1.5);
+        pdf.rect(5, 5, pageWidth - 10, pageHeight - 10);
+
+        // Header Title Block
+        pdf.setFillColor(30, 58, 138);
+        pdf.rect(5, 5, pageWidth - 10, 15, 'F');
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(14);
+        pdf.text('CLEARPATH ENGINEERING TECHNICAL BLUEPRINT', pageWidth / 2, 14, { align: 'center' });
+
+        // View Content - Smart Scaling
+        const maxContentWidth = pageWidth - 40;
+        const maxContentHeight = pageHeight - 65; // Leave room for header/footer
+
+        let imgWidth = maxContentWidth;
+        let imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+        if (imgHeight > maxContentHeight) {
+          imgHeight = maxContentHeight;
+          imgWidth = (canvas.width * imgHeight) / canvas.height;
+        }
+
+        const xPos = (pageWidth - imgWidth) / 2;
+        const yPos = 35; // Position below header
+
+        pdf.addImage(imgData, 'PNG', xPos, yPos, imgWidth, imgHeight);
+
+        // Bottom Info Block
+        pdf.setFillColor(241, 245, 249);
+        pdf.rect(5, pageHeight - 20, pageWidth - 10, 15, 'F');
+        pdf.setTextColor(30, 41, 59);
+        pdf.setFontSize(10);
+        pdf.text(`PROJECT: ${designName.toUpperCase()}`, 15, pageHeight - 10);
+        pdf.text(`DRAWING: ${view.name.toUpperCase()}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+        pdf.text(`DATE: ${new Date().toLocaleDateString('en-GB')}`, pageWidth - 45, pageHeight - 10);
       }
 
-      const canvas = await html2canvas(container, {
-        backgroundColor: '#f8fafc',
-        scale: 2, // High resolution
-        useCORS: true,
-        logging: false
-      });
-
-      const imgData = canvas.toDataURL('image/png');
-      const link = document.createElement('a');
-      link.href = imgData;
-      link.download = `${designName || 'design'}_all_views.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      alert('All views saved as high-res image!');
+      pdf.save(`${designName.replace(/ /g, '_')}_Technical_Dossier.pdf`);
+      alert('Technical Blueprint Dossier saved successfully!');
 
     } catch (error) {
-      console.error('Error saving image:', error);
-      alert('Failed to save multi-view image.');
+      console.error('Error saving blueprint:', error);
+      alert('Failed to generate technical PDF.');
     }
   };
 
@@ -171,31 +222,40 @@ function App() {
         />
       )}
 
-      <div className="flex-1 flex overflow-hidden">
-        <ComponentLibrary
-          components={components}
-          onUpdate={handleUpdateComponent}
-          onAddComponent={handleAddComponent}
-          selectedId={selectedId}
-          onDelete={() => selectedId && handleDeleteComponent(selectedId)}
-          transformMode={transformMode}
-          onSetTransformMode={setTransformMode}
+      <div className="flex-1 overflow-hidden">
+        <ResizablePane
+          padding="p-0"
+          initialSize={20}
+          minSize={10}
+          maxSize={40}
+          first={
+            <ComponentLibrary
+              components={components}
+              onUpdate={handleUpdateComponent}
+              onAddComponent={handleAddComponent}
+              selectedId={selectedId}
+              onDelete={() => selectedId && handleDeleteComponent(selectedId)}
+              transformMode={transformMode}
+              onSetTransformMode={setTransformMode}
+            />
+          }
+          second={
+            <div className="w-full h-full">
+              <Scene3D
+                components={components}
+                selectedId={selectedId}
+                onSelectComponent={setSelectedId}
+                placingType={placingType}
+                onPlaceComponent={handlePlaceComponent}
+                onCancelPlacement={handleCancelPlacement}
+                onUpdateComponent={handleUpdateComponent}
+                transformMode={transformMode}
+                onSetTransformMode={setTransformMode}
+                designName={designName}
+              />
+            </div>
+          }
         />
-
-        <div className="flex-1">
-          <Scene3D
-            components={components}
-            selectedId={selectedId}
-            onSelectComponent={setSelectedId}
-            placingType={placingType}
-            onPlaceComponent={handlePlaceComponent}
-            onCancelPlacement={handleCancelPlacement}
-            onUpdateComponent={handleUpdateComponent}
-            transformMode={transformMode}
-            onSetTransformMode={setTransformMode}
-            designName={designName}
-          />
-        </div>
       </div>
     </div>
   );
