@@ -395,7 +395,7 @@ export default function Scene3D({
       >
         <ViewportLabel text={config.label} color={config.labelColor} textColor={config.labelTextColor} onDragStart={(e) => e.dataTransfer.setData('text/plain', viewId)} viewId={viewId} />
         <StableResetButton onReset={() => resetHandlers.current[viewId]?.()} />
-        <TitleBlock designName={designName} />
+        {viewId === 'iso' && <TitleBlock designName={designName} />}
         <SceneErrorBoundary key={viewId}>
           <Canvas gl={{ antialias: true, preserveDrawingBuffer: true }} shadows onPointerMissed={() => onSelectComponent(null)}>
             {config.camera === 'ortho' ? (
