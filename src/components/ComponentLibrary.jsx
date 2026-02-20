@@ -118,32 +118,6 @@ export default function ComponentLibrary({
             <div className="pt-4 space-y-4">
               <p className="text-blue-400 text-[10px] uppercase font-black tracking-widest text-center opacity-80">Part Specifications</p>
 
-              {/* Material Selection (Box Grid) */}
-              <div className="space-y-3">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Material Selection</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {Object.values(MATERIALS).map(m => (
-                    <button
-                      key={m.id}
-                      onClick={() => updateProperty('material', m.id)}
-                      className={`relative flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all duration-300 ${(selectedComponent.properties?.material || 'steel') === m.id
-                        ? 'border-blue-600 bg-blue-50 shadow-lg shadow-blue-200/50'
-                        : 'border-slate-100 bg-slate-50/50 hover:border-slate-300 hover:bg-white hover:shadow-md'
-                        }`}
-                    >
-                      <div
-                        className="w-5 h-5 rounded-full shadow-inner border border-white/50"
-                        style={{ backgroundColor: m.color }}
-                      />
-                      <span className={`text-[9px] font-bold uppercase tracking-tight text-center ${(selectedComponent.properties?.material || 'steel') === m.id ? 'text-blue-700' : 'text-slate-500'
-                        }`}>
-                        {m.name.split(' (')[0]}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               {/* Length Control */}
               {['straight', 'vertical', 'tank'].includes(selectedComponent.component_type) && (
                 <div className="space-y-1.5">
@@ -222,12 +196,38 @@ export default function ComponentLibrary({
               </div>
 
               {/* Inside Diameter (ID) */}
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 pb-2 border-b border-blue-50/50">
                 <div className="flex justify-between text-[10px] font-bold text-slate-500 uppercase px-1">
                   <span>Inside Diameter (ID)</span>
                   <span className="text-slate-400 font-black">Ø {(selectedComponent.properties?.id || ((selectedComponent.properties?.od || 0.30) - 2 * (selectedComponent.properties?.wallThickness || 0.02))).toFixed(2)}m</span>
                 </div>
                 <div className="px-1 text-[9px] text-slate-400 italic">ID is automatically calculated</div>
+              </div>
+
+              {/* Material Selection (Box Grid) - Moved to bottom */}
+              <div className="space-y-3 pt-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Material Selection</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.values(MATERIALS).map(m => (
+                    <button
+                      key={m.id}
+                      onClick={() => updateProperty('material', m.id)}
+                      className={`relative flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all duration-300 ${(selectedComponent.properties?.material || 'steel') === m.id
+                        ? 'border-blue-600 bg-blue-50 shadow-lg shadow-blue-200/50'
+                        : 'border-slate-100 bg-slate-50/50 hover:border-slate-300 hover:bg-white hover:shadow-md'
+                        }`}
+                    >
+                      <div
+                        className="w-5 h-5 rounded-full shadow-inner border border-white/50"
+                        style={{ backgroundColor: m.color }}
+                      />
+                      <span className={`text-[9px] font-bold uppercase tracking-tight text-center ${(selectedComponent.properties?.material || 'steel') === m.id ? 'text-blue-700' : 'text-slate-500'
+                        }`}>
+                        {m.name.split(' (')[0]}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 

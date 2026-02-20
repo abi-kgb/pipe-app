@@ -7,7 +7,10 @@ import {
   TransformControls,
   CameraControls,
   PerspectiveCamera,
-  OrthographicCamera
+  OrthographicCamera,
+  GizmoHelper,
+  GizmoViewport,
+  Text
 } from '@react-three/drei';
 import PipeComponent from './PipeComponent';
 import { findSnapPoint } from '../utils/snapping';
@@ -70,7 +73,7 @@ const SharedSceneElements = ({
           rotation={viewMode === 'front' ? [0, 0, 0] : [-Math.PI / 2, 0, 0]}
           position={[0, 0, viewMode === 'front' ? -0.05 : -0.01]}
           onClick={(e) => {
-            if (e.delta < 2) onSelectComponent(null);
+            if (e.delta < 15) onSelectComponent(null);
           }}
         >
           <planeGeometry args={[2000, 2000]} />
@@ -89,6 +92,14 @@ const SharedSceneElements = ({
         fadeDistance={50}
         infiniteGrid
       />
+
+      {/* World Origin Coordinate Axis */}
+      <group>
+        <primitive object={new THREE.AxesHelper(5)} />
+        <Text position={[5.5, 0, 0]} fontSize={0.8} color="#f43f5e" font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf">X</Text>
+        <Text position={[0, 5.5, 0]} fontSize={0.8} color="#10b981" font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf">Y</Text>
+        <Text position={[0, 0, 5.5]} fontSize={0.8} color="#3b82f6" font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf">Z</Text>
+      </group>
 
       {components.map((comp) => (
         <PipeComponent
@@ -136,6 +147,8 @@ const PlacementGhost = ({ placingType, components, onPlace, viewMode }) => {
 
   const handleGlobalClick = (e) => {
     e.stopPropagation();
+    if (e.delta > 15) return; // Ignore drag/jitter
+
     if (snap && snap.isValid) {
       onPlace(
         [snap.position.x, snap.position.y, snap.position.z],
@@ -353,7 +366,7 @@ function TitleBlock({ designName }) {
         </div>
       </div>
       <div className="mt-3 pt-2 border-t-2 border-slate-900 text-center font-black text-slate-700 bg-slate-50 py-1">
-        ENGINEERING BLUEPRINT • NOT FOR DESIGN ONLY
+        BLUEPRINT • NOT FOR DESIGN ONLY
       </div>
     </div>
   );
@@ -419,6 +432,11 @@ export default function Scene3D({
               selectedId={selectedId}
               components={components}
             />
+            {viewId === 'iso' && (
+              <GizmoHelper alignment="bottom-left" margin={[80, 80]}>
+                <GizmoViewport labelColor="white" axisColors={['#f43f5e', '#10b981', '#3b82f6']} />
+              </GizmoHelper>
+            )}
             <SharedSceneElements components={components.map(c => ({ ...c, _tag: getTag(c) }))} selectedId={selectedId} onSelectComponent={onSelectComponent} onUpdateComponent={onUpdateComponent} placingType={placingType} onPlaceComponent={onPlaceComponent} transformMode={transformMode} viewMode={viewId} />
           </Canvas>
         </SceneErrorBoundary>

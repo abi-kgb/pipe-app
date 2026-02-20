@@ -107,7 +107,7 @@ function App() {
         pdf.setTextColor(255, 255, 255);
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(14);
-        pdf.text('CLEARPATH ENGINEERING TECHNICAL BLUEPRINT', pageWidth / 2, 14, { align: 'center' });
+        pdf.text('CLEARPATH BLUEPRINT', pageWidth / 2, 14, { align: 'center' });
 
         // View Content - Smart Scaling
         const maxContentWidth = pageWidth - 40;
@@ -136,8 +136,8 @@ function App() {
         pdf.text(`DATE: ${new Date().toLocaleDateString('en-GB')}`, pageWidth - 45, pageHeight - 10);
       }
 
-      pdf.save(`${designName.replace(/ /g, '_')}_Technical_Dossier.pdf`);
-      alert('Technical Blueprint Dossier saved successfully!');
+      pdf.save(`${designName.replace(/ /g, '_')}_Blueprint.pdf`);
+      alert('Blueprint saved successfully!');
 
     } catch (error) {
       console.error('Error saving blueprint:', error);

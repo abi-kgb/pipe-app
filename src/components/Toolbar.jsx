@@ -54,7 +54,7 @@ export default function Toolbar({ designName, onRename, onSave, onNewDesign, com
           className="flex items-center gap-2 px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl shadow-md shadow-blue-900/10 transition-all active:scale-95 border border-blue-600"
         >
           <Save size={18} />
-          <span className="text-sm font-bold uppercase tracking-tight">Technical Dossier (PDF)</span>
+          <span className="text-sm font-bold uppercase tracking-tight">Blueprint (PDF)</span>
         </button>
       </div>
     </div>
