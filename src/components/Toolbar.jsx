@@ -8,7 +8,7 @@ export default function Toolbar({ designName, onRename, onSave, onNewDesign, com
       <div className="flex items-center gap-4 group/name">
         <div className="flex items-center">
           <div className="flex items-center justify-center">
-            <img src={logo} alt="ClearPath Branding" className="h-24 w-auto object-contain scale-150 translate-x-2" />
+            <img src={logo} alt="Pipe3D PRO Branding" className="h-24 w-auto object-contain scale-150 translate-x-2" />
           </div>
         </div>
         <div className="h-10 w-px bg-blue-100" />

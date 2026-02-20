@@ -145,7 +145,7 @@ export default function MaterialsList({ designName = 'Untitled Project', compone
             doc.setFontSize(7);
             doc.setFont('helvetica', 'normal');
             doc.setTextColor(150, 150, 150);
-            doc.text('CLEARPATH ENG. • ENGINEERING BLUEPRINT • NOT FOR DESIGN ONLY', pageWidth / 2, finalY, { align: 'center' });
+            doc.text('PIPE3D PRO • BLUEPRINT • NOT FOR DESIGN ONLY', pageWidth / 2, finalY, { align: 'center' });
 
             doc.save(`${safeName}_bom.pdf`);
         } catch (err) {
@@ -269,7 +269,7 @@ export default function MaterialsList({ designName = 'Untitled Project', compone
                     )}
 
                     <div className="mt-12 text-center text-slate-400 text-[10px] uppercase font-black tracking-[0.2em]">
-                        System Generated • ClearPath Engine • Engineering Standard Blueprint
+                        System Generated • Pipe3D PRO • Standard Blueprint
                     </div>
                 </div>
 

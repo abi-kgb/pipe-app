@@ -107,7 +107,7 @@ function App() {
         pdf.setTextColor(255, 255, 255);
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(14);
-        pdf.text('CLEARPATH BLUEPRINT', pageWidth / 2, 14, { align: 'center' });
+        pdf.text('PIPE3D PRO BLUEPRINT', pageWidth / 2, 14, { align: 'center' });
 
         // View Content - Smart Scaling
         const maxContentWidth = pageWidth - 40;

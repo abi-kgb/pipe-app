@@ -348,7 +348,7 @@ function TitleBlock({ designName }) {
         </div>
         <div className="pl-2">
           <div className="text-slate-400 mb-1">Company</div>
-          <div className="font-black text-blue-700 italic">ClearPath Eng.</div>
+          <div className="font-black text-blue-700 italic">Pipe3D PRO</div>
         </div>
       </div>
       <div className="grid grid-cols-3 gap-2">
