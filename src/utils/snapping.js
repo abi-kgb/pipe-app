@@ -102,8 +102,11 @@ export const findSnapPoint = (
                 const alignQuat = new THREE.Quaternion().setFromUnitVectors(placingDir, targetDir.clone().negate());
                 const finalRot = new THREE.Euler().setFromQuaternion(alignQuat);
 
-                // For the placing ghost, we use default properties (radiusScale=1, length=2)
-                const ghostSocketPos = getDynamicSocketPos({ component_type: effectiveType }, placingSocket);
+                // For the placing ghost, we use the properties from the template part if available (to match physical size)
+                const ghostSocketPos = getDynamicSocketPos(
+                    placingTemplate?.parts?.[0] || { component_type: effectiveType },
+                    placingSocket
+                );
                 const offset = ghostSocketPos.applyQuaternion(alignQuat);
                 const finalPos = socketPos.clone().sub(offset);
 

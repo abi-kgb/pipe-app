@@ -73,10 +73,11 @@ const SharedSceneElements = ({
   transformMode,
   viewMode,
   darkMode,
+  onBatchSelect,
   isCapture = false,
   placingTemplate,
 }) => {
-  const bgColor = isCapture ? '#1e40af' : (darkMode ? '#0f172a' : '#ffffff');
+  const bgColor = isCapture ? '#ffffff' : (darkMode ? '#0f172a' : '#ffffff');
   const gridCellColor = darkMode ? '#1e293b' : '#e2e8f0';
   const gridSectionColor = darkMode ? '#334155' : '#cbd5e1';
 
@@ -87,19 +88,7 @@ const SharedSceneElements = ({
       <pointLight position={[10, 10, 10]} intensity={darkMode ? 1.0 : 1.5} />
       <spotLight position={[-10, 20, 10]} angle={0.15} penumbra={1} intensity={darkMode ? 1.5 : 2} castShadow />
 
-      {/* Click Plane for background technical clicks */}
-      {(viewMode === 'front' || viewMode === 'top') && !isCapture && (
-        <mesh
-          rotation={viewMode === 'front' ? [0, 0, 0] : [-Math.PI / 2, 0, 0]}
-          position={[0, 0, viewMode === 'front' ? -0.05 : -0.01]}
-          onClick={(e) => {
-            if (e.delta < 15) onSelectComponent(null);
-          }}
-        >
-          <planeGeometry args={[2000, 2000]} />
-          <meshStandardMaterial color={bgColor} transparent opacity={0} depthWrite={false} />
-        </mesh>
-      )}
+      {/* Click Plane REMOVED to prevent cross-viewport selection clearing */}
 
       {!isCapture && (
         <>
@@ -127,24 +116,29 @@ const SharedSceneElements = ({
 
       {/* Components Layer - Interactivity disabled during placement so hitboxes don't block clicks */}
       <group pointerEvents={placingType ? 'none' : 'auto'}>
-        {components.map((comp, idx) => {
-          const type = comp.component_type || 'straight';
-          const typeIdx = components.filter((c, i) => i < idx && c.component_type === type).length;
-          const tag = getComponentTag(type, typeIdx);
-          return (
-            <PipeComponent
-              key={comp.id}
-              component={comp}
-              isSelected={selectedIds.includes(comp.id)}
-              onSelect={(e) => onSelectComponent(comp.id, e)}
-              onUpdate={onUpdateComponent}
-              viewMode={viewMode}
-              darkMode={darkMode}
-              tag={tag}
-              isCapture={isCapture}
-            />
-          );
-        })}
+        {(() => {
+          const typeCounts = {};
+          return components.map((comp) => {
+            const type = comp.component_type || 'straight';
+            const idx = (typeCounts[type] || 0);
+            typeCounts[type] = idx + 1;
+            const tag = getComponentTag(type, idx);
+
+            return (
+              <PipeComponent
+                key={comp.id}
+                component={comp}
+                isSelected={selectedIds.includes(comp.id)}
+                onSelect={(e) => onSelectComponent(comp.id, e)}
+                onUpdate={onUpdateComponent}
+                viewMode={viewMode}
+                darkMode={darkMode}
+                tag={tag}
+                isCapture={isCapture}
+              />
+            );
+          });
+        })()}
       </group>
 
       {placingType && (
@@ -158,7 +152,7 @@ const SharedSceneElements = ({
         />
       )}
 
-      {selectedIds.length > 0 && (
+      {selectedIds.length > 0 && !isCapture && (
         <EditorControls
           selectedIds={selectedIds}
           components={components}
@@ -166,7 +160,128 @@ const SharedSceneElements = ({
           transformMode={transformMode}
         />
       )}
+
+      {/* Marquee Selection Logic */}
+      {!isCapture && !placingType && (
+        <SelectionManager
+          components={components}
+          onBatchSelect={onBatchSelect}
+        />
+      )}
     </>
+  );
+};
+
+const SelectionManager = ({ components, onBatchSelect }) => {
+  const { camera, gl, size } = useThree();
+  const [start, setStart] = useState(null);
+  const [end, setEnd] = useState(null);
+  const isDragging = useRef(false);
+
+  useEffect(() => {
+    const handleDown = (e) => {
+      if (e.target !== gl.domElement) return;
+
+      isDragging.current = true;
+      const rect = gl.domElement.getBoundingClientRect();
+      setStart({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      setEnd({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    };
+
+    const handleMove = (e) => {
+      if (!isDragging.current) return;
+      const rect = gl.domElement.getBoundingClientRect();
+      setEnd({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    };
+
+    const handleUp = (e) => {
+      if (!isDragging.current) return;
+      isDragging.current = false;
+
+      if (start && end) {
+        const rect = {
+          left: Math.min(start.x, end.x),
+          top: Math.min(start.y, end.y),
+          right: Math.max(start.x, end.x),
+          bottom: Math.max(start.y, end.y)
+        };
+
+        if (rect.right - rect.left > 5 || rect.bottom - rect.top > 5) {
+          const selectedIds = [];
+
+          components.forEach(comp => {
+            const pos = new THREE.Vector3(comp.position_x, comp.position_y, comp.position_z);
+            pos.project(camera);
+
+            const screenX = (pos.x + 1) * size.width / 2;
+            const screenY = (-pos.y + 1) * size.height / 2;
+
+            if (screenX >= rect.left && screenX <= rect.right &&
+              screenY >= rect.top && screenY <= rect.bottom) {
+              selectedIds.push(comp.id);
+            }
+          });
+
+          if (onBatchSelect) onBatchSelect(selectedIds, e);
+        }
+      }
+
+      setStart(null);
+      setEnd(null);
+    };
+
+    gl.domElement.addEventListener('pointerdown', handleDown);
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+
+    return () => {
+      gl.domElement.removeEventListener('pointerdown', handleDown);
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+    };
+  }, [gl, camera, size, components, onBatchSelect, start, end]);
+
+  if (!start || !end) return null;
+
+  const left = Math.min(start.x, end.x);
+  const top = Math.min(start.y, end.y);
+  const width = Math.abs(start.x - end.x);
+  const height = Math.abs(start.y - end.y);
+
+  return (
+    <Html fullscreen pointerEvents="none">
+      <div
+        style={{
+          position: 'absolute',
+          left,
+          top,
+          width,
+          height,
+          border: '1.5px dashed #3b82f6',
+          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+          borderRadius: '2px',
+          pointerEvents: 'none',
+          zIndex: 1000
+        }}
+      />
+      {width > 20 && height > 20 && (
+        <div style={{
+          position: 'absolute',
+          left: left + width / 2,
+          top: top - 25,
+          transform: 'translateX(-50%)',
+          backgroundColor: '#3b82f6',
+          color: 'white',
+          padding: '2px 8px',
+          borderRadius: '99px',
+          fontSize: '10px',
+          fontWeight: 'bold',
+          whiteSpace: 'nowrap'
+        }}>
+          Release to select
+        </div>
+      )}
+    </Html>
   );
 };
 
@@ -232,29 +347,50 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
       rotation={[snap.rotation.x, snap.rotation.y, snap.rotation.z]}
     >
       {placingTemplate?.isAssembly && placingTemplate.parts ? (
-        placingTemplate.parts.map((p, i) => (
-          <PipeComponent
-            key={`ghost_ass_${i}`}
-            component={{
-              ...p,
-              id: `ghost_part_${i}`,
-              position_x: p.offset_x || 0,
-              position_y: p.offset_y || 0,
-              position_z: p.offset_z || 0,
-              rotation_x: p.rotation_x || 0,
-              rotation_y: p.rotation_y || 0,
-              rotation_z: p.rotation_z || 0,
-              _isGhost: true,
-              _isValid: snap.isValid
-            }}
-            isSelected={false}
-            isGhost={true}
-            onSelect={() => { }}
-            onUpdate={() => { }}
-            viewMode={viewMode}
-            darkMode={darkMode}
-          />
-        ))
+        placingTemplate.parts.map((p, i) => {
+          // Calculate rotated preview for each part
+          const assemblyQuat = new THREE.Quaternion().setFromEuler(
+            new THREE.Euler(snap.rotation.x, snap.rotation.y, snap.rotation.z)
+          );
+
+          // 1. Position
+          const offsetVec = new THREE.Vector3(p.offset_x || 0, p.offset_y || 0, p.offset_z || 0);
+          offsetVec.applyQuaternion(assemblyQuat);
+
+          // 2. Rotation
+          const partLocalRot = new THREE.Euler(
+            (p.rotation_x || 0) * (Math.PI / 180),
+            (p.rotation_y || 0) * (Math.PI / 180),
+            (p.rotation_z || 0) * (Math.PI / 180)
+          );
+          const partLocalQuat = new THREE.Quaternion().setFromEuler(partLocalRot);
+          const partFinalQuat = assemblyQuat.clone().multiply(partLocalQuat);
+          const finalRot = new THREE.Euler().setFromQuaternion(partFinalQuat);
+
+          return (
+            <PipeComponent
+              key={`ghost_ass_${i}`}
+              component={{
+                ...p,
+                id: `ghost_part_${i}`,
+                position_x: offsetVec.x,
+                position_y: offsetVec.y,
+                position_z: offsetVec.z,
+                rotation_x: finalRot.x * (180 / Math.PI),
+                rotation_y: finalRot.y * (180 / Math.PI),
+                rotation_z: finalRot.z * (180 / Math.PI),
+                _isGhost: true,
+                _isValid: snap.isValid
+              }}
+              isSelected={false}
+              isGhost={true}
+              onSelect={() => { }}
+              onUpdate={() => { }}
+              viewMode={viewMode}
+              darkMode={darkMode}
+            />
+          );
+        })
       ) : (
         <PipeComponent
           component={{
@@ -565,37 +701,54 @@ const ViewportCameraControls = ({ viewMode, setResetHandler, selectedIds, compon
 // ---------------------------------------------------------
 function TitleBlock({ designName, darkMode }) {
   const date = new Date().toLocaleDateString('en-GB');
-  const borderColor = darkMode ? 'border-blue-500' : 'border-slate-900';
-  const textColor = darkMode ? 'text-slate-100' : 'text-slate-900';
   const mutedText = darkMode ? 'text-slate-500' : 'text-slate-400';
+  const textColor = darkMode ? 'text-slate-100' : 'text-slate-900';
+
+  // Blueprint specific styling (Teal/Cyan accents on white)
+  const isBlueprintTheme = !darkMode;
+  const accentColor = isBlueprintTheme ? 'text-[#00b5ad]' : 'text-blue-500';
+  const accentBorder = isBlueprintTheme ? 'border-[#00b5ad]' : (darkMode ? 'border-blue-500' : 'border-slate-900');
 
   return (
     <div className={`absolute bottom-6 right-6 backdrop-blur-md border-2 p-4 w-72 shadow-xl z-20 font-mono text-[9px] uppercase tracking-tighter transition-colors pointer-events-none select-none ${darkMode ? 'bg-slate-900/80 border-blue-900/50' : 'bg-white/60 border-slate-900 hover:bg-white/90'}`}>
-      <div className={`grid grid-cols-2 border-b-2 mb-2 pb-2 ${borderColor}`}>
-        <div className={`border-r-2 pr-2 ${borderColor}`}>
+      <div className={`grid grid-cols-2 border-b-2 mb-2 pb-2 ${accentBorder}`}>
+        <div className={`border-r-2 pr-2 ${accentBorder}`}>
           <div className={`${mutedText} mb-1`}>Project</div>
           <div className={`font-black truncate ${textColor}`}>{designName || 'Untitled'}</div>
         </div>
         <div className="pl-2">
           <div className={`${mutedText} mb-1`}>Company</div>
-          <div className="font-black text-blue-500 italic">Pipe3D PRO</div>
+          <div className={`font-black italic ${accentColor}`}>Pipe3D PRO</div>
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-2">
-        <div className={`border-r-2 pr-1 ${borderColor}`}>
-          <div className={`${mutedText}`}>Date</div>
+
+      <div className={`grid grid-cols-3 border-b-2 mb-2 pb-2 ${accentBorder}`}>
+        <div className={`border-r-2 pr-2 ${accentBorder}`}>
+          <div className={`${mutedText} mb-1`}>Date</div>
           <div className={`font-black ${textColor}`}>{date}</div>
         </div>
-        <div className={`border-r-2 pr-1 ${borderColor}`}>
+        <div className="pl-2 col-span-2">
+          <div className={`${mutedText} mb-1`}>Status</div>
+          <div className={`font-black ${accentColor}`}>APPROVED FOR CONSTRUCTION</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        <div className={`border-r-2 pr-1 ${accentBorder}`}>
           <div className={`${mutedText}`}>Rev</div>
           <div className={`font-black ${textColor}`}>01-A</div>
+        </div>
+        <div className={`border-r-2 pr-1 ${accentBorder}`}>
+          <div className={`${mutedText}`}>Drawn</div>
+          <div className={`font-black ${textColor}`}>P3D-AI</div>
         </div>
         <div className="pl-1">
           <div className={`${mutedText}`}>Scale</div>
           <div className={`font-black ${textColor}`}>1:50</div>
         </div>
       </div>
-      <div className={`mt-3 pt-2 border-t-2 text-center font-black py-1 ${borderColor} ${darkMode ? 'text-blue-500 bg-blue-950/20' : 'text-slate-700 bg-slate-50'}`}>
+
+      <div className={`mt-3 pt-2 border-t-2 text-center font-black py-1 ${accentBorder} ${isBlueprintTheme ? 'text-[#00b5ad] bg-[#00b5ad]/5' : (darkMode ? 'text-blue-500 bg-blue-950/20' : 'text-slate-700 bg-slate-50')}`}>
         BLUEPRINT • NOT FOR DESIGN ONLY
       </div>
     </div>
@@ -604,7 +757,7 @@ function TitleBlock({ designName, darkMode }) {
 
 
 const Scene3D = forwardRef(function Scene3D({
-  components, selectedIds, onSelectComponent, placingType, placingTemplate, onPlaceComponent, onCancelPlacement, onUpdateComponent, onUpdateMultiple, transformMode, designName, darkMode
+  components, selectedIds, onSelectComponent, onBatchSelect, placingType, placingTemplate, onPlaceComponent, onCancelPlacement, onUpdateComponent, onUpdateMultiple, transformMode, designName, darkMode
 }, ref) {
   const [viewLayout, setViewLayout] = useState(['iso', 'front', 'top']);
   const resetHandlers = useRef({});
@@ -695,7 +848,16 @@ const Scene3D = forwardRef(function Scene3D({
       >
         <ViewportLabel text={config.label} color={config.labelColor} textColor={config.labelTextColor} onDragStart={(e) => e.dataTransfer.setData('text/plain', viewId)} viewId={viewId} darkMode={darkMode} />
         <StableResetButton onReset={() => resetHandlers.current[viewId]?.()} darkMode={darkMode} />
-        {index === 0 && <TitleBlock designName={designName} darkMode={darkMode} />}
+
+        {/* Multi-Select Indicator */}
+        {index === 0 && (selectedIds.length > 1) && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-1.5 bg-emerald-600 text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-full shadow-lg shadow-emerald-500/20 flex items-center gap-2 animate-in zoom-in duration-300">
+            <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+            Batch Selection Active ({selectedIds.length} parts)
+          </div>
+        )}
+
+        {index === 0 && designName && <TitleBlock designName={designName} darkMode={darkMode} />}
         <SceneErrorBoundary key={viewId}>
           <ViewportContent
             viewId={viewId}
@@ -703,7 +865,7 @@ const Scene3D = forwardRef(function Scene3D({
             components={components}
             selectedIds={selectedIds}
             onSelectComponent={onSelectComponent}
-            onCancelPlacement={onCancelPlacement}
+            onBatchSelect={onBatchSelect}
             onUpdateComponent={onUpdateComponent}
             onUpdateMultiple={onUpdateMultiple}
             placingType={placingType}
@@ -759,6 +921,7 @@ const Scene3D = forwardRef(function Scene3D({
                 selectedIds={selectedIds}
                 onSelectComponent={() => { }}
                 onUpdateComponent={() => { }}
+                onUpdateMultiple={() => { }}
                 placingType={null}
                 onPlaceComponent={() => { }}
                 transformMode={transformMode}
@@ -783,6 +946,7 @@ const ViewportContent = ({
   components,
   selectedIds,
   onSelectComponent,
+  onBatchSelect,
   onUpdateComponent,
   onUpdateMultiple,
   placingType,
@@ -804,7 +968,10 @@ const ViewportContent = ({
     <Canvas
       gl={{ antialias: true, preserveDrawingBuffer: true, alpha: true }}
       shadows
-      onPointerMissed={() => !isCapture && onSelectComponent(null)}
+      onPointerMissed={(e) => {
+        // Only clear if not clicking UI and not dragging a box
+        if (e.button === 0) onSelectComponent(null);
+      }}
     >
       {config.camera === 'ortho' ? (
         <OrthographicCamera makeDefault position={config.defaultPos} zoom={config.defaultZoom} up={config.defaultUp || [0, 1, 0]} />
@@ -826,6 +993,7 @@ const ViewportContent = ({
         components={components.map(c => ({ ...c, _tag: getTagInternal(c) }))}
         selectedIds={selectedIds}
         onSelectComponent={onSelectComponent}
+        onBatchSelect={onBatchSelect}
         onUpdateComponent={onUpdateComponent}
         onUpdateMultiple={onUpdateMultiple}
         placingType={placingType}

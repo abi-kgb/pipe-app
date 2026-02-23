@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Package, ArrowRight, ArrowUp, Circle, Filter, Droplets, GitBranch, Slash, StopCircle, Trash2, Move, RotateCcw, Scaling, Disc, Hash, Plus, Link, Square, Cylinder, Cuboid, Cone, Layers, MousePointer2, History as HistoryIcon, Clock, Copy } from 'lucide-react';
+import { Package, ArrowRight, ArrowUp, Circle, Filter, Droplets, GitBranch, Slash, StopCircle, Trash2, Move, RotateCcw, Scaling, Disc, Hash, Plus, Link, Square, Cylinder, Cuboid, Cone, Layers, MousePointer2, History as HistoryIcon, Clock, Copy, List } from 'lucide-react';
 import { COMPONENT_DEFINITIONS, MATERIALS } from '../config/componentDefinitions';
+import PartsSchedule from './PartsSchedule';
 
 const LIBRARY_PARTS = [
   { type: 'straight', label: 'Straight Pipe', icon: <ArrowRight size={20} />, color: '#2563eb' },
@@ -45,6 +46,7 @@ export default function ComponentLibrary({
   onSaveToLibrary,
   userParts = [],
   onDeleteUserPart,
+  onSelectComponent,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('library'); // 'library' or 'history'
@@ -98,51 +100,63 @@ export default function ComponentLibrary({
         <h2 className={`text-sm font-black uppercase tracking-widest mb-6 transition-colors ${darkMode ? 'text-slate-200' : 'text-slate-800'}`}>Engineering Panel</h2>
 
         {/* 2x2 Navigation Grid */}
-        <div className="grid grid-cols-2 gap-2 mb-6">
+        <div className="grid grid-cols-2 gap-1.5 lg:gap-2 mb-6">
           <button
             onClick={() => setActiveTab('library')}
-            className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase transition-all tracking-widest border-2 ${activeTab === 'library'
+            className={`flex items-center justify-center gap-1.5 lg:gap-2 py-2.5 lg:py-3 rounded-xl text-[9px] lg:text-[10px] font-black uppercase transition-all tracking-widest border-2 ${activeTab === 'library'
               ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200'
               : (darkMode ? 'bg-slate-800 text-slate-500 border-slate-700 hover:border-slate-600 hover:text-slate-300' : 'bg-white text-slate-400 border-slate-100 hover:border-blue-100 hover:text-blue-600')
               }`}
           >
-            <Package size={16} />
+            <Package size={isMultiSelect ? 14 : 16} />
             Library
           </button>
 
           <button
             onClick={() => setActiveTab('my-parts')}
-            className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase transition-all tracking-widest border-2 ${activeTab === 'my-parts'
+            className={`flex items-center justify-center gap-1.5 lg:gap-2 py-2.5 lg:py-3 rounded-xl text-[9px] lg:text-[10px] font-black uppercase transition-all tracking-widest border-2 ${activeTab === 'my-parts'
               ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200'
               : (darkMode ? 'bg-slate-800 text-slate-500 border-slate-700 hover:border-slate-600 hover:text-slate-300' : 'bg-white text-slate-400 border-slate-100 hover:border-blue-100 hover:text-blue-600')
               }`}
           >
-            <Layers size={16} />
+            <Layers size={isMultiSelect ? 14 : 16} />
             My Parts
           </button>
 
           <button
-            onClick={() => onSetMultiSelectMode(!multiSelectMode)}
-            className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase transition-all tracking-widest border-2 ${multiSelectMode
-              ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100'
-              : (darkMode ? 'bg-slate-800 text-slate-500 border-slate-700 hover:border-emerald-900 hover:text-emerald-400' : 'bg-white text-slate-400 border-slate-100 hover:border-emerald-100 hover:text-emerald-600')
-              }`}
-          >
-            <MousePointer2 size={16} />
-            Multi-Select
-          </button>
-
-          <button
-            onClick={() => setActiveTab('history')}
-            className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase transition-all tracking-widest border-2 ${activeTab === 'history'
+            onClick={() => setActiveTab('bom')}
+            className={`flex items-center justify-center gap-1.5 lg:gap-2 py-2.5 lg:py-3 rounded-xl text-[9px] lg:text-[10px] font-black uppercase transition-all tracking-widest border-2 ${activeTab === 'bom'
               ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200'
               : (darkMode ? 'bg-slate-800 text-slate-500 border-slate-700 hover:border-slate-600 hover:text-slate-300' : 'bg-white text-slate-400 border-slate-100 hover:border-blue-100 hover:text-blue-600')
               }`}
           >
-            <HistoryIcon size={16} />
+            <List size={isMultiSelect ? 14 : 16} />
+            Live BOM
+          </button>
+
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`flex items-center justify-center gap-1.5 lg:gap-2 py-2.5 lg:py-3 rounded-xl text-[9px] lg:text-[10px] font-black uppercase transition-all tracking-widest border-2 ${activeTab === 'history'
+              ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200'
+              : (darkMode ? 'bg-slate-800 text-slate-500 border-slate-700 hover:border-slate-600 hover:text-slate-300' : 'bg-white text-slate-400 border-slate-100 hover:border-blue-100 hover:text-blue-600')
+              }`}
+          >
+            <HistoryIcon size={isMultiSelect ? 14 : 16} />
             History
           </button>
         </div>
+
+        {/* Multi-Select Toggle Moved Below Grid */}
+        <button
+          onClick={() => onSetMultiSelectMode(!multiSelectMode)}
+          className={`w-full flex items-center justify-center gap-2 py-2 mb-6 rounded-xl text-[9px] font-black uppercase transition-all tracking-[0.2em] border-2 ${multiSelectMode
+            ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100'
+            : (darkMode ? 'bg-slate-800 text-slate-500 border-slate-700 hover:border-emerald-900 hover:text-emerald-400' : 'bg-blue-50/30 text-slate-400 border-blue-100/50 hover:bg-emerald-50 hover:text-emerald-600')
+            }`}
+        >
+          <MousePointer2 size={12} />
+          {multiSelectMode ? 'Multi-Selection Active' : 'Enable Multi-Select'}
+        </button>
 
         {/* Search Bar */}
         <div className="relative mb-6">
@@ -158,7 +172,23 @@ export default function ComponentLibrary({
           </svg>
         </div>
 
-        <h3 className={`text-[10px] font-black uppercase tracking-widest px-1 transition-colors ${darkMode ? 'text-slate-500' : 'text-blue-400/80'}`}>Component Library</h3>
+        <h3 className={`text-[10px] font-black uppercase tracking-widest px-1 transition-colors ${darkMode ? 'text-slate-500' : 'text-blue-400/80'} flex justify-between items-center`}>
+          <span>Component Library</span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setSelectedIds(components.map(c => c.id))}
+              className="text-[8px] hover:text-blue-500 transition-colors"
+            >
+              Select All
+            </button>
+            <button
+              onClick={() => setSelectedIds([])}
+              className="text-[8px] hover:text-red-500 transition-colors"
+            >
+              Clear
+            </button>
+          </div>
+        </h3>
       </div>
 
       <div className={`flex-1 overflow-y-auto custom-scrollbar p-6 space-y-8 ${darkMode ? 'dark-scrollbar' : ''}`}>
@@ -434,6 +464,15 @@ export default function ComponentLibrary({
                 </div>
               )}
             </div>
+          </div>
+        ) : activeTab === 'bom' ? (
+          <div className="h-full flex flex-col -mx-6 -mb-6 animate-in fade-in slide-in-from-right-4 duration-300">
+            <PartsSchedule
+              components={components}
+              selectedIds={selectedIds}
+              onSelectComponent={(id) => onSelectComponent ? onSelectComponent(id) : setSelectedIds([id])}
+              darkMode={darkMode}
+            />
           </div>
         ) : activeTab === 'library' ? (
           <div className="space-y-4 animate-in fade-in slide-in-from-left-4 duration-200">

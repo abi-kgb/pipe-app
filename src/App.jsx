@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import * as THREE from 'three';
 import Scene3D from './components/Scene3D';
 import ComponentLibrary from './components/ComponentLibrary';
 import Toolbar from './components/Toolbar';
@@ -14,6 +15,7 @@ function App() {
   const [components, setComponents] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
   const [placingType, setPlacingType] = useState(null);
+  const [placingTemplate, setPlacingTemplate] = useState(null);
   const [designName, setDesignName] = useState('Untitled Design');
   const [clipboard, setClipboard] = useState(null);
   const [showMaterials, setShowMaterials] = useState(false);
@@ -24,6 +26,19 @@ function App() {
   const [darkMode, setDarkMode] = useState(() => {
     return localStorage.getItem('pipe3d_theme') === 'dark';
   });
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
+  const [showLibrary, setShowLibrary] = useState(window.innerWidth >= 1024);
+
+  // Track window resize for responsiveness
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 1024;
+      setIsMobile(mobile);
+      if (!mobile) setShowLibrary(true);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   const [history, setHistory] = useState(() => {
     try {
       const saved = localStorage.getItem('pipe3d_history');
@@ -40,8 +55,95 @@ function App() {
       return [];
     }
   });
-  // Track if we are placing a specific user-saved part template
-  const [placingTemplate, setPlacingTemplate] = useState(null);
+
+  // --- UNDO / REDO STATE ---
+  const [historyStack, setHistoryStack] = useState([[]]); // Start with empty state
+  const [historyIndex, setHistoryIndex] = useState(0);
+
+  const saveToHistory = useCallback((newComps) => {
+    setHistoryStack(prev => {
+      const nextStack = prev.slice(0, historyIndex + 1);
+      const lastState = nextStack[nextStack.length - 1];
+
+      // Don't save if state is identical to last
+      if (lastState && JSON.stringify(lastState) === JSON.stringify(newComps)) return prev;
+
+      const updatedStack = [...nextStack, JSON.parse(JSON.stringify(newComps))];
+      // Limit history to 50 steps
+      if (updatedStack.length > 50) return updatedStack.slice(1);
+      return updatedStack;
+    });
+    setHistoryIndex(prev => Math.min(prev + 1, 49));
+  }, [historyIndex]);
+
+  const handleUndo = useCallback(() => {
+    if (historyIndex > 0) {
+      const prevIdx = historyIndex - 1;
+      setComponents(JSON.parse(JSON.stringify(historyStack[prevIdx])));
+      setHistoryIndex(prevIdx);
+      setSelectedIds([]);
+    }
+  }, [historyIndex, historyStack]);
+
+  const handleRedo = useCallback(() => {
+    if (historyIndex < historyStack.length - 1) {
+      const nextIdx = historyIndex + 1;
+      setComponents(JSON.parse(JSON.stringify(historyStack[nextIdx])));
+      setHistoryIndex(nextIdx);
+      setSelectedIds([]);
+    }
+  }, [historyIndex, historyStack]);
+  const handleCancelPlacement = useCallback(() => {
+    setPlacingType(null);
+    setPlacingTemplate(null);
+  }, []);
+
+  const handleSelectComponent = useCallback((id, e) => {
+    // console.log('Selection event:', { id, multiMode: multiSelectMode, hasEvent: !!e });
+    if (!id) {
+      setSelectedIds([]);
+      return;
+    }
+
+    handleCancelPlacement();
+    const isMulti = multiSelectMode || (e && (e.shiftKey || e.ctrlKey || e.metaKey));
+
+    // Smart Assembly Selection
+    const targetComp = components.find(c => c.id === id);
+    if (!targetComp) {
+      setSelectedIds([]);
+      return;
+    }
+
+    let idsToSelect = [id];
+    if (targetComp.assemblyId) {
+      idsToSelect = components
+        .filter(c => c.assemblyId === targetComp.assemblyId)
+        .map(c => c.id);
+    }
+
+    if (isMulti) {
+      setSelectedIds(prev => {
+        const alreadySelected = idsToSelect.every(i => prev.includes(i));
+        if (alreadySelected) {
+          return prev.filter(i => !idsToSelect.includes(i));
+        } else {
+          return [...new Set([...prev, ...idsToSelect])];
+        }
+      });
+    } else {
+      setSelectedIds(idsToSelect);
+    }
+  }, [multiSelectMode, components, handleCancelPlacement]);
+  const handleBatchSelect = useCallback((ids, e) => {
+    const isMulti = multiSelectMode || (e && (e.shiftKey || e.ctrlKey || e.metaKey));
+
+    if (isMulti) {
+      setSelectedIds(prev => [...new Set([...prev, ...ids])]);
+    } else {
+      setSelectedIds(ids);
+    }
+  }, [multiSelectMode]);
 
   // Theme persistence
   useEffect(() => {
@@ -59,7 +161,7 @@ function App() {
       const saved = localStorage.getItem('pipe3d_autosave');
       if (saved) {
         const data = JSON.parse(saved);
-        if (data.components) setComponents(data.components);
+        if (data.components && Array.isArray(data.components)) setComponents(data.components);
         if (data.name) setDesignName(data.name);
       }
     } catch (e) {
@@ -86,7 +188,7 @@ function App() {
     localStorage.setItem('pipe3d_user_parts', JSON.stringify(userParts));
   }, [userParts]);
 
-  const totalCost = calculateTotalCost(components);
+  const totalCost = useMemo(() => calculateTotalCost(components), [components]);
 
 
   const handleAddComponent = useCallback((type, template = null) => {
@@ -101,22 +203,54 @@ function App() {
     // ASSEMBLY MODE: If the template has multiple parts
     if (placingTemplate?.isAssembly && placingTemplate.parts) {
       const assemblyId = `ass_${Date.now()}`;
+
+      // Calculate assembly rotation (from snap)
+      const assemblyQuat = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(
+          (rotation[0] * Math.PI) / 180,
+          (rotation[1] * Math.PI) / 180,
+          (rotation[2] * Math.PI) / 180
+        )
+      );
+
       setComponents(prev => {
         const newComps = placingTemplate.parts.map(p => {
-          // Relative to target position
+          // 1. Calculate rotated offset
+          const offsetVec = new THREE.Vector3(p.offset_x || 0, p.offset_y || 0, p.offset_z || 0);
+          offsetVec.applyQuaternion(assemblyQuat);
+
+          // 2. Calculate rotated part rotation
+          const partLocalRot = new THREE.Euler(
+            (p.rotation_x || 0) * (Math.PI / 180),
+            (p.rotation_y || 0) * (Math.PI / 180),
+            (p.rotation_z || 0) * (Math.PI / 180)
+          );
+          const partLocalQuat = new THREE.Quaternion().setFromEuler(partLocalRot);
+          const partFinalQuat = assemblyQuat.clone().multiply(partLocalQuat);
+          const finalRot = new THREE.Euler().setFromQuaternion(partFinalQuat);
+
           return {
             ...JSON.parse(JSON.stringify(p)),
             id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${Math.random()}`,
-            assemblyId, // Link them together
-            position_x: position[0] + (p.offset_x || 0),
-            position_y: position[1] + (p.offset_y || 0),
-            position_z: position[2] + (p.offset_z || 0),
-            // We keep the original rotation of the assembly parts for now
-            // Future: Adjust rotation based on overall assembly rotation
+            assemblyId,
+            position_x: position[0] + offsetVec.x,
+            position_y: position[1] + offsetVec.y,
+            position_z: position[2] + offsetVec.z,
+            rotation_x: finalRot.x * (180 / Math.PI),
+            rotation_y: finalRot.y * (180 / Math.PI),
+            rotation_z: finalRot.z * (180 / Math.PI),
           };
         });
-        return [...prev, ...newComps];
+        const finalComps = [...prev, ...newComps];
+        return finalComps;
       });
+      // Corrected: move outside setter
+      setTimeout(() => {
+        setComponents(prev => {
+          saveToHistory(prev);
+          return prev;
+        });
+      }, 0);
       setPlacingType(null);
       setPlacingTemplate(null);
       setSelectedIds([]);
@@ -142,34 +276,64 @@ function App() {
       properties: finalProperties,
     };
 
-    setComponents(prev => [...prev, newComponent]);
+    setComponents(prev => {
+      const next = [...prev, newComponent];
+      return next;
+    });
+    // Move outside setter
+    setTimeout(() => {
+      setComponents(prev => {
+        saveToHistory(prev);
+        return prev;
+      });
+    }, 0);
     // Note: We clear placingType here to return to selection mode after placement.
     setPlacingType(null);
     setPlacingTemplate(null);
     setSelectedIds([]);
   }, [placingType, placingTemplate]);
 
-  const handleCancelPlacement = useCallback(() => {
-    setPlacingType(null);
-  }, []);
 
   const handleUpdateComponent = useCallback((updatedComponent) => {
-    setComponents(prev =>
-      prev.map(comp => (comp.id === updatedComponent.id ? updatedComponent : comp))
-    );
-  }, []);
+    setComponents(prev => {
+      const next = prev.map(comp => (comp.id === updatedComponent.id ? updatedComponent : comp));
+      return next;
+    });
+    setTimeout(() => {
+      setComponents(prev => {
+        saveToHistory(prev);
+        return prev;
+      });
+    }, 0);
+  }, [saveToHistory]);
 
   const handleUpdateComponents = useCallback((updatedComponents) => {
     setComponents(prev => {
       const updates = new Map(updatedComponents.map(c => [c.id, c]));
-      return prev.map(comp => updates.has(comp.id) ? updates.get(comp.id) : comp);
+      const next = prev.map(comp => updates.has(comp.id) ? updates.get(comp.id) : comp);
+      return next;
     });
-  }, []);
+    setTimeout(() => {
+      setComponents(prev => {
+        saveToHistory(prev);
+        return prev;
+      });
+    }, 0);
+  }, [saveToHistory]);
 
   const handleDeleteComponents = useCallback((ids) => {
-    setComponents(prev => prev.filter(comp => !ids.includes(comp.id)));
+    setComponents(prev => {
+      const next = prev.filter(comp => !ids.includes(comp.id));
+      return next;
+    });
     setSelectedIds(prev => prev.filter(id => !ids.includes(id)));
-  }, []);
+    setTimeout(() => {
+      setComponents(prev => {
+        saveToHistory(prev);
+        return prev;
+      });
+    }, 0);
+  }, [saveToHistory]);
 
   const handleDuplicateComponents = useCallback((ids) => {
     if (ids.length === 0) return;
@@ -190,7 +354,13 @@ function App() {
       setTimeout(() => setSelectedIds(newClones.map(c => c.id)), 0);
       return newComponents;
     });
-  }, []);
+    setTimeout(() => {
+      setComponents(prev => {
+        saveToHistory(prev);
+        return prev;
+      });
+    }, 0);
+  }, [saveToHistory]);
 
   const handleSaveToLibrary = useCallback((ids) => {
     if (!ids || ids.length === 0) return;
@@ -212,15 +382,40 @@ function App() {
       const origin = {
         x: selectedOnes[0].position_x,
         y: selectedOnes[0].position_y,
-        z: selectedOnes[0].position_z
+        z: selectedOnes[0].position_z,
+        rot: new THREE.Euler(
+          (selectedOnes[0].rotation_x || 0) * (Math.PI / 180),
+          (selectedOnes[0].rotation_y || 0) * (Math.PI / 180),
+          (selectedOnes[0].rotation_z || 0) * (Math.PI / 180)
+        )
       };
+      const originQuatInv = new THREE.Quaternion().setFromEuler(origin.rot).invert();
 
-      const assemblyParts = selectedOnes.map(comp => ({
-        ...JSON.parse(JSON.stringify(comp)),
-        offset_x: comp.position_x - origin.x,
-        offset_y: comp.position_y - origin.y,
-        offset_z: comp.position_z - origin.z,
-      }));
+      const assemblyParts = selectedOnes.map(comp => {
+        // Position offset
+        const pos = new THREE.Vector3(comp.position_x, comp.position_y, comp.position_z);
+        const offset = pos.sub(new THREE.Vector3(origin.x, origin.y, origin.z)).applyQuaternion(originQuatInv);
+
+        // Rotation offset
+        const compRot = new THREE.Euler(
+          (comp.rotation_x || 0) * (Math.PI / 180),
+          (comp.rotation_y || 0) * (Math.PI / 180),
+          (comp.rotation_z || 0) * (Math.PI / 180)
+        );
+        const compQuat = new THREE.Quaternion().setFromEuler(compRot);
+        const relQuat = originQuatInv.clone().multiply(compQuat);
+        const relRot = new THREE.Euler().setFromQuaternion(relQuat);
+
+        return {
+          ...JSON.parse(JSON.stringify(comp)),
+          offset_x: offset.x,
+          offset_y: offset.y,
+          offset_z: offset.z,
+          rotation_x: relRot.x * (180 / Math.PI),
+          rotation_y: relRot.y * (180 / Math.PI),
+          rotation_z: relRot.z * (180 / Math.PI),
+        };
+      });
 
       newPart = {
         id: `user_ass_${Date.now()}`,
@@ -273,10 +468,61 @@ function App() {
           handleDuplicateComponents(selectedIds);
         }
       }
+
+      // 4. CTRL + Z for Undo
+      if (e.ctrlKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        handleUndo();
+      }
+
+      // 5. CTRL + Y or CTRL + SHIFT + Z for Redo
+      if (e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+        e.preventDefault();
+        handleRedo();
+      }
+
+      // 6. Transform Mode (T for Translate, R for Rotate)
+      if (e.key.toLowerCase() === 't') {
+        setTransformMode('translate');
+      } else if (e.key.toLowerCase() === 'r') {
+        setTransformMode('rotate');
+      }
+
+      // 7. Clipboard (CTRL + C, CTRL + V)
+      if (e.ctrlKey && e.key.toLowerCase() === 'c' && selectedIds.length > 0) {
+        const component = components.find(c => c.id === selectedIds[0]);
+        if (component) {
+          setClipboard(component);
+          console.log('Copied to clipboard:', component);
+        }
+      }
+
+      if (e.ctrlKey && e.key.toLowerCase() === 'v' && clipboard) {
+        const newComponent = {
+          ...clipboard,
+          id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          position_x: clipboard.position_x + 2,
+          position_y: clipboard.position_y,
+          position_z: clipboard.position_z,
+          connections: []
+        };
+        setComponents(prev => {
+          const next = [...prev, newComponent];
+          return next;
+        });
+        setTimeout(() => {
+          setComponents(prev => {
+            saveToHistory(prev);
+            return prev;
+          });
+        }, 0);
+        setSelectedIds([newComponent.id]);
+        console.log('Pasted:', newComponent);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleCancelPlacement, selectedIds, handleDeleteComponents, handleDuplicateComponents]);
+  }, [handleCancelPlacement, selectedIds, handleDeleteComponents, handleDuplicateComponents, handleUndo, handleRedo, components, clipboard, saveToHistory]);
 
 
 
@@ -487,52 +733,6 @@ function App() {
     setDesignName('Untitled Design');
   };
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      // Ignore if user is typing in an input (like the rename field)
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0) {
-        handleDeleteComponents(selectedIds);
-      }
-
-      if (e.key === 'Escape') {
-        handleCancelPlacement();
-        setSelectedIds([]);
-      }
-
-      if (e.key.toLowerCase() === 't') {
-        setTransformMode('translate');
-      } else if (e.key.toLowerCase() === 'r') {
-        setTransformMode('rotate');
-      }
-
-      if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selectedIds.length > 0) {
-        // Copy the first selected for now, or all if we support multi-paste later
-        const component = components.find(c => c.id === selectedIds[0]);
-        if (component) {
-          setClipboard(component);
-          console.log('Copied to clipboard:', component);
-        }
-      }
-
-      if ((e.metaKey || e.ctrlKey) && e.key === 'v' && clipboard) {
-        const newComponent = {
-          ...clipboard,
-          id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          position_x: clipboard.position_x + 2,
-          position_y: clipboard.position_y,
-          position_z: clipboard.position_z,
-          connections: []
-        };
-        setComponents(prev => [...prev, newComponent]);
-        setSelectedIds([newComponent.id]);
-        console.log('Pasted:', newComponent);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIds, handleCancelPlacement, handleDeleteComponents, components, clipboard]);
 
   return (
     <div className={`h-screen flex flex-col transition-colors duration-300 ${darkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-[#f0f9ff] text-slate-900'} selection:bg-blue-200`}>
@@ -548,6 +748,13 @@ function App() {
         onToggleTheme={() => setDarkMode(!darkMode)}
         showSchedule={showSchedule}
         onToggleSchedule={() => setShowSchedule(!showSchedule)}
+        isMobile={isMobile}
+        onToggleLibrary={() => setShowLibrary(!showLibrary)}
+        showLibrary={showLibrary}
+        canUndo={historyIndex > 0}
+        canRedo={historyIndex < historyStack.length - 1}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
       />
 
       {showMaterials && (
@@ -558,105 +765,142 @@ function App() {
         />
       )}
 
-      <div className="flex-1 overflow-hidden">
-        <ResizablePane
-          vertical={true}
-          initialSize={showSchedule ? 70 : 100}
-          minSize={20}
-          maxSize={90}
-          padding="p-0"
-          first={
-            <ResizablePane
-              padding="p-0"
-              initialSize={20}
-              minSize={10}
-              maxSize={40}
-              first={
-                <ComponentLibrary
+      <div className="flex-1 overflow-hidden relative">
+        {isMobile ? (
+          <div className="w-full h-full flex flex-col relative">
+            {/* Main Content Area */}
+            <div className="flex-1 relative">
+              <Scene3D
+                ref={sceneRef}
+                components={components}
+                selectedIds={selectedIds}
+                onSelectComponent={handleSelectComponent}
+                placingType={placingType}
+                placingTemplate={placingTemplate}
+                onPlaceComponent={(pos, rot) => {
+                  handlePlaceComponent(pos, rot);
+                  if (isMobile) setShowLibrary(false);
+                }}
+                onCancelPlacement={handleCancelPlacement}
+                onUpdateComponent={handleUpdateComponent}
+                onUpdateMultiple={handleUpdateComponents}
+                onBatchSelect={handleBatchSelect}
+                transformMode={transformMode}
+                onSetTransformMode={setTransformMode}
+                designName={designName}
+                darkMode={darkMode}
+              />
+
+              {/* Mobile Library Overlay */}
+              {showLibrary && (
+                <div
+                  className="absolute inset-0 z-50 bg-black/20 backdrop-blur-sm transition-all duration-300 animate-in fade-in"
+                  onClick={() => setShowLibrary(false)}
+                >
+                  <div
+                    className="w-full max-w-sm h-full bg-white shadow-2xl animate-in slide-in-from-left duration-300"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <ComponentLibrary
+                      components={components}
+                      onUpdate={handleUpdateComponent}
+                      onUpdateMultiple={handleUpdateComponents}
+                      onAddComponent={handleAddComponent}
+                      selectedIds={selectedIds}
+                      setSelectedIds={setSelectedIds}
+                      onDelete={() => selectedIds.length > 0 && handleDeleteComponents(selectedIds)}
+                      onDuplicate={() => selectedIds.length > 0 && handleDuplicateComponents(selectedIds)}
+                      onSaveToLibrary={() => selectedIds.length > 0 && handleSaveToLibrary(selectedIds)}
+                      userParts={userParts}
+                      onDeleteUserPart={handleDeleteUserPart}
+                      transformMode={transformMode}
+                      onSetTransformMode={setTransformMode}
+                      multiSelectMode={multiSelectMode}
+                      onSetMultiSelectMode={setMultiSelectMode}
+                      history={history}
+                      onLoadHistory={handleLoadHistory}
+                      onDeleteHistory={handleDeleteHistory}
+                      onSaveToHistory={handleSaveToHistory}
+                      darkMode={darkMode}
+                      placingType={placingType}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Mobile Schedule Overlay */}
+              {showSchedule && (
+                <div
+                  className="absolute inset-0 z-50 bg-black/20 backdrop-blur-sm transition-all duration-300 animate-in fade-in"
+                  onClick={() => setShowSchedule(false)}
+                >
+                  <div
+                    className="w-full h-4/5 mt-auto bg-white rounded-t-3xl shadow-2xl animate-in slide-in-from-bottom duration-300 overflow-hidden"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    <div className="h-full p-2 overflow-hidden">
+                      <PartsSchedule components={components} darkMode={darkMode} />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <ResizablePane
+            padding="p-0"
+            initialSize={20}
+            minSize={10}
+            maxSize={40}
+            first={
+              <ComponentLibrary
+                components={components}
+                onUpdate={handleUpdateComponent}
+                onUpdateMultiple={handleUpdateComponents}
+                onAddComponent={handleAddComponent}
+                selectedIds={selectedIds}
+                setSelectedIds={setSelectedIds}
+                onSelectComponent={handleSelectComponent}
+                onDelete={() => selectedIds.length > 0 && handleDeleteComponents(selectedIds)}
+                onDuplicate={() => selectedIds.length > 0 && handleDuplicateComponents(selectedIds)}
+                onSaveToLibrary={() => selectedIds.length > 0 && handleSaveToLibrary(selectedIds)}
+                userParts={userParts}
+                onDeleteUserPart={handleDeleteUserPart}
+                transformMode={transformMode}
+                onSetTransformMode={setTransformMode}
+                multiSelectMode={multiSelectMode}
+                onSetMultiSelectMode={setMultiSelectMode}
+                history={history}
+                onLoadHistory={handleLoadHistory}
+                onDeleteHistory={handleDeleteHistory}
+                onSaveToHistory={handleSaveToHistory}
+                darkMode={darkMode}
+                placingType={placingType}
+              />
+            }
+            second={
+              <div className="w-full h-full">
+                <Scene3D
+                  ref={sceneRef}
                   components={components}
-                  onUpdate={handleUpdateComponent}
-                  onUpdateMultiple={handleUpdateComponents}
-                  onAddComponent={handleAddComponent}
                   selectedIds={selectedIds}
-                  setSelectedIds={setSelectedIds}
-                  onDelete={() => selectedIds.length > 0 && handleDeleteComponents(selectedIds)}
-                  onDuplicate={() => selectedIds.length > 0 && handleDuplicateComponents(selectedIds)}
-                  onSaveToLibrary={() => selectedIds.length > 0 && handleSaveToLibrary(selectedIds)}
-                  userParts={userParts}
-                  onDeleteUserPart={handleDeleteUserPart}
+                  onSelectComponent={handleSelectComponent}
+                  placingType={placingType}
+                  placingTemplate={placingTemplate}
+                  onPlaceComponent={handlePlaceComponent}
+                  onCancelPlacement={handleCancelPlacement}
+                  onUpdateComponent={handleUpdateComponent}
+                  onBatchSelect={handleBatchSelect}
+                  onUpdateMultiple={handleUpdateComponents}
                   transformMode={transformMode}
                   onSetTransformMode={setTransformMode}
-                  multiSelectMode={multiSelectMode}
-                  onSetMultiSelectMode={setMultiSelectMode}
-                  history={history}
-                  onLoadHistory={handleLoadHistory}
-                  onDeleteHistory={handleDeleteHistory}
-                  onSaveToHistory={handleSaveToHistory}
+                  designName={designName}
                   darkMode={darkMode}
-                  placingType={placingType}
                 />
-              }
-              second={
-                <div className="w-full h-full">
-                  <Scene3D
-                    ref={sceneRef}
-                    components={components}
-                    selectedIds={selectedIds}
-                    onSelectComponent={(id, e) => {
-                      if (!id) {
-                        setSelectedIds([]);
-                      } else {
-                        handleCancelPlacement();
-                        const isMulti = multiSelectMode || (e && (e.shiftKey || e.ctrlKey || e.metaKey));
-
-                        // Smart Assembly Selection
-                        const targetComp = components.find(c => c.id === id);
-                        let idsToSelect = [id];
-                        if (targetComp?.assemblyId) {
-                          idsToSelect = components
-                            .filter(c => c.assemblyId === targetComp.assemblyId)
-                            .map(c => c.id);
-                        }
-
-                        if (isMulti) {
-                          setSelectedIds(prev => {
-                            const alreadySelected = idsToSelect.every(i => prev.includes(i));
-                            if (alreadySelected) {
-                              return prev.filter(i => !idsToSelect.includes(i));
-                            } else {
-                              return [...new Set([...prev, ...idsToSelect])];
-                            }
-                          });
-                        } else {
-                          setSelectedIds(idsToSelect);
-                        }
-                      }
-                    }}
-                    placingType={placingType}
-                    placingTemplate={placingTemplate}
-                    onPlaceComponent={handlePlaceComponent}
-                    onCancelPlacement={handleCancelPlacement}
-                    onUpdateComponent={handleUpdateComponent}
-                    onUpdateMultiple={handleUpdateComponents}
-                    transformMode={transformMode}
-                    onSetTransformMode={setTransformMode}
-                    designName={designName}
-                    darkMode={darkMode}
-                  />
-                </div>
-              }
-            />
-          }
-          second={
-            showSchedule ? (
-              <div className="w-full h-full p-2 bg-slate-100 overflow-hidden">
-                <div className="w-full h-full rounded-2xl shadow-xl overflow-hidden border border-blue-100">
-                  <PartsSchedule components={components} darkMode={darkMode} />
-                </div>
               </div>
-            ) : null
-          }
-        />
+            }
+          />
+        )}
       </div>
     </div>
   );

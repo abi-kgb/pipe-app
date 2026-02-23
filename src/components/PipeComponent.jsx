@@ -1,10 +1,10 @@
-import { useRef, useState } from 'react';
-import { Html, Text } from '@react-three/drei';
+import { useRef, useState, memo } from 'react';
+import { Html, Text, Edges } from '@react-three/drei';
 import * as THREE from 'three';
 import BoundingBoxGizmo from './BoundingBoxGizmo';
 import { MATERIALS } from '../config/componentDefinitions';
 
-export default function PipeComponent({
+function PipeComponent({
   component,
   isSelected,
   onSelect,
@@ -59,13 +59,20 @@ export default function PipeComponent({
   const getMaterial = (type, isSelected) => {
     if (isCapture) {
       return (
-        <meshStandardMaterial
-          color="#ffffff"
-          emissive="#ffffff"
-          emissiveIntensity={0.2}
-          roughness={0.1}
-          metalness={0.1}
-        />
+        <>
+          <meshStandardMaterial
+            color="#ffffff"
+            emissive="#ffffff"
+            emissiveIntensity={0.1}
+            roughness={1}
+            metalness={0}
+          />
+          <Edges
+            threshold={15}
+            color="#00ced1" // Catchy Teal/Cyan
+            lineWidth={2}
+          />
+        </>
       );
     }
 
@@ -163,12 +170,12 @@ export default function PipeComponent({
           </mesh>
           <mesh position={[0, 0, -0.06]}>
             <circleGeometry args={[isCapture ? 0.38 : 0.28, 32]} />
-            <meshBasicMaterial color={isCapture ? "#ffffff" : "#1d4ed8"} />
+            <meshBasicMaterial color={isCapture ? "#008b8b" : "#1d4ed8"} />
           </mesh>
 
           <Text
             fontSize={isCapture ? 0.35 : 0.25}
-            color={isCapture ? "#1e40af" : "#1d4ed8"} // Blue text on white bubble for blueprint
+            color={isCapture ? "#ffffff" : "#1d4ed8"} // White text on dark teal bubble for blueprint
             font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf"
             anchorX="center"
             anchorY="middle"
@@ -183,13 +190,13 @@ export default function PipeComponent({
             rotation={[0, 0, Math.atan2(-finalStaggerY, -finalStaggerX) + Math.PI / 2]}
           >
             <boxGeometry args={[0.02, Math.sqrt(finalStaggerX * finalStaggerX + finalStaggerY * finalStaggerY) - 0.4, 0.01]} />
-            <meshBasicMaterial color="white" transparent opacity={isCapture ? 1 : 0.6} />
+            <meshBasicMaterial color={isCapture ? "#008b8b" : "white"} transparent opacity={isCapture ? 1 : 0.6} />
           </mesh>
 
           {/* Leader Dot at component center */}
           <mesh position={[-finalStaggerX, -finalStaggerY, -0.1]}>
             <sphereGeometry args={[0.06, 8, 8]} />
-            <meshBasicMaterial color="white" />
+            <meshBasicMaterial color={isCapture ? "#008b8b" : "white"} />
           </mesh>
         </group>
 
@@ -237,17 +244,17 @@ export default function PipeComponent({
 
     if (type === 'straight' || type === 'vertical') {
       return (
-        <mesh visible={false}>
+        <mesh>
           <cylinderGeometry args={[hitboxRadius, hitboxRadius, hitboxLength, 8]} />
-          <meshBasicMaterial color="red" transparent opacity={0.1} />
+          <meshBasicMaterial color="red" transparent opacity={0} />
         </mesh>
       );
     }
     if (type === 'elbow' || type === 'elbow-45' || type === 't-joint' || type === 'cross') {
       return (
-        <mesh visible={false}>
+        <mesh>
           <sphereGeometry args={[hitboxRadius * 1.8, 8, 8]} />
-          <meshBasicMaterial color="red" transparent opacity={0.1} />
+          <meshBasicMaterial color="red" transparent opacity={0} />
         </mesh>
       );
     }
@@ -276,8 +283,8 @@ export default function PipeComponent({
           <group>
             <Hitbox type={type} radius={radiusOuter} length={length} />
             <mesh>
-              <cylinderGeometry args={[0.01, 0.01, length + 0.4, 8]} />
-              <meshBasicMaterial color={highlightColor} transparent opacity={0.6} />
+              <cylinderGeometry args={[0.012, 0.012, length + 0.4, 8]} />
+              <meshBasicMaterial color={highlightColor} transparent opacity={isSelected ? 0.8 : 0.4} />
             </mesh>
             {!isCapture && (
               <mesh>
@@ -557,3 +564,6 @@ export default function PipeComponent({
     </group>
   );
 }
+
+const MemorizedPipeComponent = memo(PipeComponent);
+export default MemorizedPipeComponent;
