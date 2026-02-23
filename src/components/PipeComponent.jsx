@@ -7,11 +7,13 @@ import { MATERIALS } from '../config/componentDefinitions';
 export default function PipeComponent({
   component,
   isSelected,
-  isGhost,
   onSelect,
   onUpdate,
+  isGhost = false,
   viewMode = 'top',
-  tag = 'P-?'
+  tag = '',
+  darkMode = false,
+  isCapture = false,
 }) {
   const meshRef = useRef(null);
   const [isHovered, setIsHovered] = useState(false);
@@ -45,8 +47,8 @@ export default function PipeComponent({
     ((component.rotation_z || 0) * Math.PI) / 180,
   ];
 
-  const materialKey = component.properties?.material || 'steel';
-  const material = MATERIALS[materialKey] || MATERIALS.steel;
+  const materialKey = component.properties?.material || 'pvc';
+  const material = MATERIALS[materialKey] || MATERIALS.pvc;
 
   const SOLID_COLORS = {
     cylinder: '#6366f1',
@@ -55,16 +57,37 @@ export default function PipeComponent({
   };
 
   const getMaterial = (type, isSelected) => {
+    if (isCapture) {
+      return (
+        <meshStandardMaterial
+          color="#ffffff"
+          emissive="#ffffff"
+          emissiveIntensity={0.2}
+          roughness={0.1}
+          metalness={0.1}
+        />
+      );
+    }
+
+    if (isGhost) {
+      return (
+        <meshStandardMaterial
+          color="#3b82f6"
+          transparent
+          opacity={0.7}
+          emissive="#3b82f6"
+          emissiveIntensity={0.4}
+        />
+      );
+    }
+
     // Determine base color
     let baseColor = material.color;
-
-    // If it's a solid and the material is default (steel), use a distinct color
     if (SOLID_COLORS[type] && materialKey === 'steel') {
       baseColor = SOLID_COLORS[type];
     }
 
-    if (is2D && !isGhost) {
-      // Schematic style
+    if (is2D) {
       const strokeColor = isSelected ? '#1d4ed8' : '#2563eb';
       const fillColor = isSelected ? '#dbeafe' : baseColor;
       return (
@@ -80,21 +103,8 @@ export default function PipeComponent({
 
     const isPlastic = ['pvc', 'cpvc', 'upvc', 'hdpe'].includes(materialKey);
     const isSpecialMetal = ['copper', 'brass', 'ss316'].includes(materialKey);
-
     let metalness = isPlastic ? 0 : (isSpecialMetal ? 0.9 : 0.6);
     let roughness = isPlastic ? 0.8 : (isSpecialMetal ? 0.1 : 0.3);
-
-    if (isGhost) {
-      return (
-        <meshStandardMaterial
-          color="#3b82f6"
-          transparent
-          opacity={0.7}
-          emissive="#3b82f6"
-          emissiveIntensity={0.4}
-        />
-      );
-    }
 
     return (
       <meshStandardMaterial
@@ -123,11 +133,18 @@ export default function PipeComponent({
       -((component.rotation_z || 0) * Math.PI) / 180,
     ];
 
+    // Smarter stagger for Blueprint (Capture) mode to prevent overlapping
+    const captureStaggerX = ((idHash % 7) - 3) * 0.8;
+    const captureStaggerY = ((idHash % 4) + 1.2);
+
+    const finalStaggerX = isCapture ? captureStaggerX : staggerX;
+    const finalStaggerY = isCapture ? captureStaggerY : (radiusOuter + 0.45);
+
     return (
-      <group rotation={invRotation} position={[staggerX, staggerY, 0.1]}>
+      <group rotation={invRotation} position={[0, 0, 0.1]}>
         {/* Selection Handle Dot - Appears on hover to make clicking easier */}
-        {isHovered && (
-          <mesh onClick={(e) => { e.stopPropagation(); onSelect(); }}>
+        {isHovered && !isCapture && (
+          <mesh onClick={(e) => { e.stopPropagation(); onSelect(e); }}>
             <sphereGeometry args={[radiusOuter * 1.5, 16, 16]} />
             <meshBasicMaterial color="#3b82f6" transparent opacity={0.4} />
             <mesh position={[0, 0, 0]}>
@@ -137,312 +154,227 @@ export default function PipeComponent({
           </mesh>
         )}
 
-        {/* Part Tag (e.g., P-1) */}
-        <group position={[-radiusOuter - 0.4, 0, 0.1]}>
+        {/* Label and Tag Container */}
+        <group position={[finalStaggerX, finalStaggerY, 0.2]}>
+          {/* Tag Bubble Background */}
+          <mesh position={[0, 0, -0.05]}>
+            <circleGeometry args={[isCapture ? 0.35 : 0.25, 32]} />
+            <meshBasicMaterial color="white" />
+          </mesh>
+          <mesh position={[0, 0, -0.06]}>
+            <circleGeometry args={[isCapture ? 0.38 : 0.28, 32]} />
+            <meshBasicMaterial color={isCapture ? "#ffffff" : "#1d4ed8"} />
+          </mesh>
+
           <Text
-            fontSize={0.18}
-            color="#1e293b"
+            fontSize={isCapture ? 0.35 : 0.25}
+            color={isCapture ? "#1e40af" : "#1d4ed8"} // Blue text on white bubble for blueprint
             font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf"
-            anchorX="right"
+            anchorX="center"
             anchorY="middle"
-            outlineWidth={0.02}
-            outlineColor="#ffffff"
+            fontWeight="900"
           >
             {tag}
           </Text>
-          {/* Leader Dot */}
-          <mesh position={[0.1, 0, 0]}>
-            <sphereGeometry args={[0.04, 8, 8]} />
-            <meshBasicMaterial color="#3b82f6" />
+
+          {/* Leader Line to Pipe (Professional Offset Line) */}
+          <mesh
+            position={[-finalStaggerX / 2, -finalStaggerY / 2, -0.1]}
+            rotation={[0, 0, Math.atan2(-finalStaggerY, -finalStaggerX) + Math.PI / 2]}
+          >
+            <boxGeometry args={[0.02, Math.sqrt(finalStaggerX * finalStaggerX + finalStaggerY * finalStaggerY) - 0.4, 0.01]} />
+            <meshBasicMaterial color="white" transparent opacity={isCapture ? 1 : 0.6} />
+          </mesh>
+
+          {/* Leader Dot at component center */}
+          <mesh position={[-finalStaggerX, -finalStaggerY, -0.1]}>
+            <sphereGeometry args={[0.06, 8, 8]} />
+            <meshBasicMaterial color="white" />
           </mesh>
         </group>
 
-        {/* Length & Elevation Label */}
-        <Text
-          position={[0, radiusOuter + 0.65, 0.1]}
-          fontSize={0.2}
-          color="#1e293b"
-          font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf"
-          anchorX="center"
-          anchorY="middle"
-          outlineWidth={0.02}
-          outlineColor="#ffffff"
-        >
-          {`L: ${length.toFixed(2)}m | EL +${elevation.toFixed(2)}`}
-        </Text>
+        {/* Detailed Info - Visible on hover only (NOT in capture/blueprint) */}
+        {isHovered && !isCapture && !isGhost && (
+          <group position={[0, -(radiusOuter + 0.8), 0.1]}>
+            {/* Length & Elevation Label */}
+            <Text
+              position={[0, 0, 0]}
+              fontSize={0.2}
+              color={darkMode ? '#cbd5e1' : '#1e293b'}
+              font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf"
+              anchorX="center"
+              anchorY="middle"
+              outlineWidth={0.02}
+              outlineColor={darkMode ? '#0f172a' : '#ffffff'}
+            >
+              {`L: ${length.toFixed(2)}m | EL +${elevation.toFixed(2)}`}
+            </Text>
 
-        {/* OD/ID/WT Measurements */}
-        <Text
-          position={[0, -(radiusOuter + 0.65), 0.1]}
-          fontSize={0.12}
-          color="#475569"
-          font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf"
-          anchorX="center"
-          anchorY="middle"
-          maxWidth={2}
-          outlineWidth={0.01}
-          outlineColor="#ffffff"
-        >
-          {`Ø${od.toFixed(2)} | Ø${id.toFixed(2)} | WT:${wt.toFixed(3)}m`}
-        </Text>
+            {/* OD/ID/WT Measurements */}
+            <Text
+              position={[0, -0.25, 0]}
+              fontSize={0.12}
+              color={darkMode ? '#94a3b8' : '#475569'}
+              font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf"
+              anchorX="center"
+              anchorY="middle"
+              maxWidth={2.5}
+              outlineWidth={0.01}
+              outlineColor={darkMode ? '#0f172a' : '#ffffff'}
+            >
+              {`Ø${od.toFixed(2)} | Ø${id.toFixed(2)} | WT:${wt.toFixed(3)}m`}
+            </Text>
+          </group>
+        )}
       </group>
     );
   };
 
+  const Hitbox = ({ type, radius, length, radiusScale }) => {
+    // A simplified, slightly larger version of the geometry for easier clicking
+    const hitboxRadius = Math.max(radius * 1.5, 0.25);
+    const hitboxLength = length + 0.4;
+
+    if (type === 'straight' || type === 'vertical') {
+      return (
+        <mesh visible={false}>
+          <cylinderGeometry args={[hitboxRadius, hitboxRadius, hitboxLength, 8]} />
+          <meshBasicMaterial color="red" transparent opacity={0.1} />
+        </mesh>
+      );
+    }
+    if (type === 'elbow' || type === 'elbow-45' || type === 't-joint' || type === 'cross') {
+      return (
+        <mesh visible={false}>
+          <sphereGeometry args={[hitboxRadius * 1.8, 8, 8]} />
+          <meshBasicMaterial color="red" transparent opacity={0.1} />
+        </mesh>
+      );
+    }
+    return null;
+  };
+
   const renderGeometry = () => {
     const type = component.component_type || 'straight';
-    const centerlineColor = isSelected ? '#1d4ed8' : '#e2e8f0';
+    const highlightColor = isHovered ? '#60a5fa' : (isSelected ? '#1d4ed8' : '#e2e8f0');
+
+    // Ghost color logic
+    let ghostColor = '#3b82f6';
+    if (isGhost) {
+      if (component._isValid) ghostColor = '#10b981'; // Green for valid
+      else ghostColor = '#f43f5e'; // Red for invalid
+    }
+
+    const material = isGhost ? (
+      <meshStandardMaterial color={ghostColor} transparent opacity={0.6} emissive={ghostColor} emissiveIntensity={0.5} />
+    ) : getMaterial(type, isSelected);
 
     switch (type) {
       case 'straight':
+      case 'vertical':
         return (
           <group>
-            {/* Centerline (Reference Axis) */}
+            <Hitbox type={type} radius={radiusOuter} length={length} />
             <mesh>
-              <cylinderGeometry args={[0.005, 0.005, length + 0.4, 8]} />
-              <meshBasicMaterial color={centerlineColor} transparent opacity={0.6} />
+              <cylinderGeometry args={[0.01, 0.01, length + 0.4, 8]} />
+              <meshBasicMaterial color={highlightColor} transparent opacity={0.6} />
             </mesh>
-
-            {/* Outer Wall */}
-            <mesh>
-              <cylinderGeometry args={[radiusOuter, radiusOuter, length, 32, 1, true]} />
-              {getMaterial('straight', isSelected)}
-            </mesh>
-            {/* Inner Wall */}
-            <mesh scale={[1, 1, 1]}>
-              <cylinderGeometry args={[radiusInner, radiusInner, length, 32, 1, true]} />
-              <meshStandardMaterial color="#222" side={THREE.BackSide} />
-            </mesh>
-            {/* End Caps (Rings) */}
-            <mesh position={[0, length / 2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-              {getMaterial('straight', isSelected)}
-            </mesh>
-            <mesh position={[0, -length / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-              {getMaterial('straight', isSelected)}
-            </mesh>
-            {/* Joint Symbols (Visual indicators for fitting connection) */}
-            <mesh position={[0, length / 2, 0.01]} rotation={[-Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[radiusOuter, radiusOuter + 0.05, 32]} />
-              <meshBasicMaterial color="#94a3b8" transparent opacity={0.5} />
-            </mesh>
-            <mesh position={[0, -length / 2, 0.01]} rotation={[Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[radiusOuter, radiusOuter + 0.05, 32]} />
-              <meshBasicMaterial color="#94a3b8" transparent opacity={0.5} />
-            </mesh>
+            {!isCapture && (
+              <mesh>
+                <cylinderGeometry args={[radiusOuter, radiusOuter, length, 32, 1, true]} />
+                {material}
+              </mesh>
+            )}
+            {!isGhost && !isCapture && (
+              <>
+                <mesh scale={[1, 1, 1]}>
+                  <cylinderGeometry args={[radiusInner, radiusInner, length, 32, 1, true]} />
+                  <meshStandardMaterial color="#222" side={THREE.BackSide} />
+                </mesh>
+                <mesh position={[0, length / 2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                  {material}
+                </mesh>
+                <mesh position={[0, -length / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                  {material}
+                </mesh>
+              </>
+            )}
+            {isCapture && (
+              <mesh>
+                <cylinderGeometry args={[radiusOuter, radiusOuter, length, 32]} />
+                {material}
+              </mesh>
+            )}
           </group>
         );
       case 'elbow':
         return (
           <group>
-            {/* Centerlines */}
-            <mesh position={[0, 0.5 * radiusScale, 0]}>
-              <cylinderGeometry args={[0.005, 0.005, 1.4 * radiusScale, 8]} />
-              <meshBasicMaterial color={centerlineColor} transparent opacity={0.6} />
-            </mesh>
-            <mesh position={[0.5 * radiusScale, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
-              <cylinderGeometry args={[0.005, 0.005, 1.4 * radiusScale, 8]} />
-              <meshBasicMaterial color={centerlineColor} transparent opacity={0.6} />
-            </mesh>
-
-            {/* Hollow Vertical Segment */}
+            <Hitbox type={type} radius={radiusOuter} radiusScale={radiusScale} />
             <mesh position={[0, 0.5 * radiusScale, 0]}>
               <cylinderGeometry args={[radiusOuter, radiusOuter, 1 * radiusScale, 32, 1, true]} />
-              {getMaterial('elbow', isSelected)}
+              {material}
             </mesh>
-            <mesh position={[0, 0.5 * radiusScale, 0]} scale={[1, 1, 1]}>
-              <cylinderGeometry args={[radiusInner, radiusInner, 1 * radiusScale, 32, 1, true]} />
-              <meshStandardMaterial color="#222" side={THREE.BackSide} />
-            </mesh>
-
-            {/* Hollow Horizontal Segment */}
             <mesh position={[0.5 * radiusScale, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
               <cylinderGeometry args={[radiusOuter, radiusOuter, 1 * radiusScale, 32, 1, true]} />
-              {getMaterial('elbow', isSelected)}
+              {material}
             </mesh>
-            <mesh position={[0.5 * radiusScale, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
-              <cylinderGeometry args={[radiusInner, radiusInner, 1 * radiusScale, 32, 1, true]} />
-              <meshStandardMaterial color="#222" side={THREE.BackSide} />
-            </mesh>
-
-            {/* Hollow Corner Sphere */}
             <mesh position={[0, 0, 0]}>
               <sphereGeometry args={[radiusOuter, 32, 16]} />
-              {getMaterial('elbow', isSelected)}
-            </mesh>
-            <mesh position={[0, 0, 0]}>
-              <sphereGeometry args={[radiusInner, 32, 16]} />
-              <meshStandardMaterial color="#222" side={THREE.BackSide} />
-            </mesh>
-
-            {/* Joint Symbols */}
-            <mesh position={[0, 1 * radiusScale, 0.01]} rotation={[-Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[radiusOuter, radiusOuter + 0.05, 32]} />
-              <meshBasicMaterial color="#94a3b8" transparent opacity={0.5} />
-            </mesh>
-            <mesh position={[1 * radiusScale, 0, 0.01]} rotation={[-Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[radiusOuter, radiusOuter + 0.05, 32]} />
-              <meshBasicMaterial color="#94a3b8" transparent opacity={0.5} />
-            </mesh>
-          </group>
-        );
-      case 'elbow-45':
-        return (
-          <group>
-            {/* Centerlines */}
-            <mesh position={[0, 0.35 * radiusScale, 0]}>
-              <cylinderGeometry args={[0.005, 0.005, 1.2 * radiusScale, 8]} />
-              <meshBasicMaterial color={centerlineColor} transparent opacity={0.6} />
-            </mesh>
-            <mesh position={[0.25 * radiusScale, -0.1 * radiusScale, 0]} rotation={[0, 0, Math.PI / 4]}>
-              <cylinderGeometry args={[0.005, 0.005, 1.2 * radiusScale, 8]} />
-              <meshBasicMaterial color={centerlineColor} transparent opacity={0.6} />
-            </mesh>
-
-            {/* Hollow Vertical Segment */}
-            <mesh position={[0, 0.35 * radiusScale, 0]}>
-              <cylinderGeometry args={[radiusOuter, radiusOuter, 0.7 * radiusScale, 32, 1, true]} />
-              {getMaterial('elbow-45', isSelected)}
-            </mesh>
-            <mesh position={[0, 0.35 * radiusScale, 0]}>
-              <cylinderGeometry args={[radiusInner, radiusInner, 0.7 * radiusScale, 32, 1, true]} />
-              <meshStandardMaterial color="#222" side={THREE.BackSide} />
-            </mesh>
-
-            {/* Hollow Angled Segment */}
-            <mesh position={[0.25 * radiusScale, -0.1 * radiusScale, 0]} rotation={[0, 0, Math.PI / 4]}>
-              <cylinderGeometry args={[radiusOuter, radiusOuter, 0.7 * radiusScale, 32, 1, true]} />
-              {getMaterial('elbow-45', isSelected)}
-            </mesh>
-            <mesh position={[0.25 * radiusScale, -0.1 * radiusScale, 0]} rotation={[0, 0, Math.PI / 4]}>
-              <cylinderGeometry args={[radiusInner, radiusInner, 0.7 * radiusScale, 32, 1, true]} />
-              <meshStandardMaterial color="#222" side={THREE.BackSide} />
-            </mesh>
-
-            {/* Hollow Corner Piece */}
-            <mesh position={[0, 0, 0]}>
-              <sphereGeometry args={[radiusOuter, 32, 16]} />
-              {getMaterial('elbow-45', isSelected)}
-            </mesh>
-            <mesh position={[0, 0, 0]}>
-              <sphereGeometry args={[radiusInner, 32, 16]} />
-              <meshStandardMaterial color="#222" side={THREE.BackSide} />
-            </mesh>
-
-            {/* Joint Symbols */}
-            <mesh position={[0, 1 * radiusScale, 0.01]} rotation={[-Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[radiusOuter, radiusOuter + 0.05, 32]} />
-              <meshBasicMaterial color="#94a3b8" transparent opacity={0.5} />
-            </mesh>
-            {/* Approximate 45 degree end position */}
-            <mesh position={[0.5 * radiusScale, -0.2 * radiusScale, 0.01]} rotation={[0, 0, Math.PI / 4]}>
-              <ringGeometry args={[radiusOuter, radiusOuter + 0.05, 32]} />
-              <meshBasicMaterial color="#94a3b8" transparent opacity={0.5} />
-            </mesh>
-          </group>
-        );
-      case 'vertical':
-        return (
-          <group>
-            {/* Centerline (Reference Axis) */}
-            <mesh>
-              <cylinderGeometry args={[0.005, 0.005, length + 0.4, 8]} />
-              <meshBasicMaterial color={centerlineColor} transparent opacity={0.6} />
-            </mesh>
-
-            {/* Outer Wall */}
-            <mesh>
-              <cylinderGeometry args={[radiusOuter, radiusOuter, length, 32, 1, true]} />
-              {getMaterial('vertical', isSelected)}
-            </mesh>
-            {/* Inner Wall */}
-            <mesh scale={[1, 1, 1]}>
-              <cylinderGeometry args={[radiusInner, radiusInner, length, 32, 1, true]} />
-              <meshStandardMaterial color="#222" side={THREE.BackSide} />
-            </mesh>
-            {/* End Caps (Rings) */}
-            <mesh position={[0, length / 2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-              {getMaterial('vertical', isSelected)}
-            </mesh>
-            <mesh position={[0, -length / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-              {getMaterial('vertical', isSelected)}
+              {material}
             </mesh>
           </group>
         );
       case 't-joint':
         return (
           <group>
-            {/* Centerlines */}
-            <mesh position={[0, 0, 0]}>
-              <cylinderGeometry args={[0.005, 0.005, 1.8 * radiusScale, 8]} />
-              <meshBasicMaterial color={centerlineColor} transparent opacity={0.6} />
-            </mesh>
-            <mesh position={[0.4 * radiusScale, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
-              <cylinderGeometry args={[0.005, 0.005, 1.2 * radiusScale, 8]} />
-              <meshBasicMaterial color={centerlineColor} transparent opacity={0.6} />
-            </mesh>
-
-            {/* Main Pass-through (Vertical) */}
-            <mesh position={[0, 0, 0]}>
+            <Hitbox type={type} radius={radiusOuter} radiusScale={radiusScale} />
+            <mesh>
               <cylinderGeometry args={[radiusOuter, radiusOuter, 1.5 * radiusScale, 32, 1, true]} />
-              {getMaterial('t-joint', isSelected)}
+              {material}
             </mesh>
-            <mesh position={[0, 0, 0]}>
-              <cylinderGeometry args={[radiusInner, radiusInner, 1.5 * radiusScale, 32, 1, true]} />
-              <meshStandardMaterial color="#222" side={THREE.BackSide} />
-            </mesh>
-
-            {/* Side Branch (Horizontal) */}
             <mesh position={[0.375 * radiusScale, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
               <cylinderGeometry args={[radiusOuter, radiusOuter, 0.75 * radiusScale, 32, 1, true]} />
-              {getMaterial('t-joint', isSelected)}
+              {material}
             </mesh>
-            <mesh position={[0.375 * radiusScale, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
-              <cylinderGeometry args={[radiusInner, radiusInner, 0.75 * radiusScale, 32, 1, true]} />
-              <meshStandardMaterial color="#222" side={THREE.BackSide} />
+            <mesh>
+              <sphereGeometry args={[radiusOuter, 16, 16]} />
+              {material}
             </mesh>
-
-            {/* Joint Symbols */}
-            <mesh position={[0, 0.75 * radiusScale, 0.01]} rotation={[-Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[radiusOuter, radiusOuter + 0.05, 32]} />
-              <meshBasicMaterial color="#94a3b8" transparent opacity={0.5} />
+          </group>
+        );
+      case 'elbow-45':
+        return (
+          <group>
+            <Hitbox type={type} radius={radiusOuter} radiusScale={radiusScale} />
+            <mesh position={[0, 0.35 * radiusScale, 0]}>
+              <cylinderGeometry args={[radiusOuter, radiusOuter, 0.7 * radiusScale, 32, 1, true]} />
+              {material}
             </mesh>
-            <mesh position={[0, -0.75 * radiusScale, 0.01]} rotation={[Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[radiusOuter, radiusOuter + 0.05, 32]} />
-              <meshBasicMaterial color="#94a3b8" transparent opacity={0.5} />
+            <mesh position={[0.25 * radiusScale, -0.1 * radiusScale, 0]} rotation={[0, 0, Math.PI / 4]}>
+              <cylinderGeometry args={[radiusOuter, radiusOuter, 0.7 * radiusScale, 32, 1, true]} />
+              {material}
             </mesh>
-            <mesh position={[0.75 * radiusScale, 0, 0.01]} rotation={[0, Math.PI / 2, 0]}>
-              <ringGeometry args={[radiusOuter, radiusOuter + 0.05, 32]} />
-              <meshBasicMaterial color="#94a3b8" transparent opacity={0.5} />
+            <mesh position={[0, 0, 0]}>
+              <sphereGeometry args={[radiusOuter, 32, 16]} />
+              {material}
             </mesh>
           </group>
         );
       case 'valve':
-        const handleRotation = component.properties?.handleRotation || 0;
         return (
           <group>
-            {/* Main Body */}
+            <Hitbox type={type} radius={radiusOuter} radiusScale={radiusScale} />
             <mesh>
               <cylinderGeometry args={[radius, radius, 1.5 * radiusScale, 16]} />
-              {getMaterial('valve', isSelected)}
+              {material}
             </mesh>
-
-            {/* Rotatable Handle Assembly */}
-            <group rotation={[0, 0, (handleRotation * Math.PI) / 180]}>
-              {/* Valve Block/Base */}
-              <mesh position={[0, 0.3 * radiusScale, 0]}>
-                <boxGeometry args={[0.4 * radiusScale, 0.1 * radiusScale, 0.4 * radiusScale]} />
-                {is2D ? getMaterial('valve', isSelected) : <meshStandardMaterial color="#333" />}
-              </mesh>
-              {/* Simple Handle Lever */}
-              <mesh position={[0, 0.6 * radiusScale, 0]} rotation={[0, Math.PI / 4, 0]}>
-                <cylinderGeometry args={[radius * 0.33, radius * 0.33, 0.6 * radiusScale, 8]} />
-                {is2D ? getMaterial('valve', isSelected) : <meshStandardMaterial color="#555" metalness={0.9} roughness={0.1} />}
-              </mesh>
-            </group>
+            <mesh position={[0, 0.3 * radiusScale, 0]}>
+              <boxGeometry args={[0.4 * radiusScale, 0.1 * radiusScale, 0.4 * radiusScale]} />
+              <meshStandardMaterial color="#333" />
+            </mesh>
           </group>
         );
       case 'filter':
@@ -450,216 +382,145 @@ export default function PipeComponent({
           <group>
             <mesh>
               <cylinderGeometry args={[radius * 2, radius * 2, 1 * radiusScale, 16]} />
-              {getMaterial('filter', isSelected)}
+              {material}
             </mesh>
             <mesh position={[0, 0.6 * radiusScale, 0]}>
               <cylinderGeometry args={[radius, radius, 0.2 * radiusScale, 16]} />
-              {is2D ? getMaterial('filter', isSelected) : <meshStandardMaterial color="#222" />}
+              <meshStandardMaterial color="#222" />
             </mesh>
           </group>
         );
       case 'tank':
-        const tankHeight = length;
-        const tankRadius = 1 * radiusScale;
         return (
           <group>
             <mesh>
-              <cylinderGeometry args={[tankRadius, tankRadius, tankHeight, 32]} />
-              {getMaterial('tank', isSelected)}
+              <cylinderGeometry args={[radiusScale, radiusScale, length, 32]} />
+              {material}
             </mesh>
-            <mesh position={[0, tankHeight / 2 + 0.1, 0]}>
-              <sphereGeometry args={[tankRadius, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
-              {getMaterial('tank', isSelected)}
+            <mesh position={[0, length / 2 + 0.1, 0]}>
+              <sphereGeometry args={[radiusScale, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+              {material}
             </mesh>
           </group>
         );
       case 'cap':
         return (
           <group>
-            <mesh position={[0, 0, 0]}>
+            <mesh>
               <cylinderGeometry args={[radius, radius, 0.3 * radiusScale, 16]} />
-              {is2D ? getMaterial('cap', isSelected) : <meshStandardMaterial color="#757575" metalness={0.8} />}
-            </mesh>
-            <mesh position={[0, 0.15 * radiusScale, 0]}>
-              <sphereGeometry args={[radius * 1.2, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
-              {is2D ? getMaterial('cap', isSelected) : <meshStandardMaterial color="#757575" metalness={0.8} />}
-            </mesh>
-          </group>
-        );
-      case 'reducer':
-        return (
-          <group>
-            {/* Conical body */}
-            <mesh>
-              <cylinderGeometry args={[radius, radius * 0.6, 0.8 * radiusScale, 32, 1, true]} />
-              {getMaterial('reducer', isSelected)}
-            </mesh>
-            <mesh scale={[1, 1, 1]}>
-              <cylinderGeometry args={[radiusInner, radiusInner * 0.6, 0.8 * radiusScale, 32, 1, true]} />
-              <meshStandardMaterial color="#222" side={THREE.BackSide} />
-            </mesh>
-            {/* End rings */}
-            <mesh position={[0, 0.4 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[radiusInner * 0.6, radius * 0.6, 32]} />
-              {getMaterial('reducer', isSelected)}
-            </mesh>
-            <mesh position={[0, -0.4 * radiusScale, 0]} rotation={[Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[radiusInner, radius, 32]} />
-              {getMaterial('reducer', isSelected)}
-            </mesh>
-          </group>
-        );
-      case 'flange':
-        return (
-          <group>
-            {/* Main disc */}
-            <mesh>
-              <cylinderGeometry args={[radius * 1.8, radius * 1.8, 0.2 * radiusScale, 32]} />
-              {getMaterial('flange', isSelected)}
-            </mesh>
-            {/* Hub */}
-            <mesh position={[0, 0.15 * radiusScale, 0]}>
-              <cylinderGeometry args={[radius, radius, 0.1 * radiusScale, 32]} />
-              {getMaterial('flange', isSelected)}
-            </mesh>
-            {/* Bolt holes (visual simplification: ring) */}
-            {!is2D && (
-              <mesh position={[0, 0.105 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                <ringGeometry args={[radius * 1.4, radius * 1.6, 32]} />
-                <meshBasicMaterial color="#333" transparent opacity={0.3} />
-              </mesh>
-            )}
-          </group>
-        );
-      case 'union':
-        return (
-          <group>
-            {/* Threaded ends */}
-            <mesh position={[0, 0.15 * radiusScale, 0]}>
-              <cylinderGeometry args={[radius, radius, 0.3 * radiusScale, 32]} />
-              {getMaterial('union', isSelected)}
-            </mesh>
-            <mesh position={[0, -0.15 * radiusScale, 0]}>
-              <cylinderGeometry args={[radius, radius, 0.3 * radiusScale, 32]} />
-              {getMaterial('union', isSelected)}
-            </mesh>
-            {/* Center Nut */}
-            <mesh>
-              <cylinderGeometry args={[radius * 1.3, radius * 1.3, 0.2 * radiusScale, 6]} />
-              {is2D ? getMaterial('union', isSelected) : <meshStandardMaterial color="#475569" metalness={0.8} />}
+              {material}
             </mesh>
           </group>
         );
       case 'cross':
         return (
           <group>
-            {/* Main Pass-through (Vertical) */}
+            <Hitbox type={type} radius={radiusOuter} radiusScale={radiusScale} />
             <mesh>
               <cylinderGeometry args={[radiusOuter, radiusOuter, 2 * radiusScale, 32, 1, true]} />
-              {getMaterial('cross', isSelected)}
+              {material}
             </mesh>
-            <mesh scale={[1, 1, 1]}>
-              <cylinderGeometry args={[radiusInner, radiusInner, 2 * radiusScale, 32, 1, true]} />
-              <meshStandardMaterial color="#222" side={THREE.BackSide} />
-            </mesh>
-            {/* Cross Branch (Horizontal) */}
             <mesh rotation={[0, 0, Math.PI / 2]}>
               <cylinderGeometry args={[radiusOuter, radiusOuter, 2 * radiusScale, 32, 1, true]} />
-              {getMaterial('cross', isSelected)}
+              {material}
             </mesh>
-            <mesh rotation={[0, 0, Math.PI / 2]}>
-              <cylinderGeometry args={[radiusInner, radiusInner, 2 * radiusScale, 32, 1, true]} />
-              <meshStandardMaterial color="#222" side={THREE.BackSide} />
-            </mesh>
-            {/* Joint Symbols */}
-            {[
-              [0, 1, 0, -Math.PI / 2, 0, 0],
-              [0, -1, 0, Math.PI / 2, 0, 0],
-              [1, 0, 0, 0, Math.PI / 2, 0],
-              [-1, 0, 0, 0, -Math.PI / 2, 0]
-            ].map((p, i) => (
-              <mesh key={i} position={[p[0] * radiusScale, p[1] * radiusScale, 0.01]} rotation={[p[3], p[4], p[5]]}>
-                <ringGeometry args={[radiusOuter, radiusOuter + 0.05, 32]} />
-                <meshBasicMaterial color="#94a3b8" transparent opacity={0.5} />
-              </mesh>
-            ))}
           </group>
         );
+      case 'reducer':
+        return (
+          <group>
+            <mesh>
+              <cylinderGeometry args={[radiusOuter * 0.7, radiusOuter, 0.8 * radiusScale, 32]} />
+              {material}
+            </mesh>
+          </group>
+        );
+      case 'flange':
+        return (
+          <group>
+            <mesh position={[0, -0.05, 0]}>
+              <cylinderGeometry args={[radiusOuter * 1.5, radiusOuter * 1.5, 0.1, 32]} />
+              {material}
+            </mesh>
+            <mesh position={[0, 0.05, 0]}>
+              <cylinderGeometry args={[radiusOuter, radiusOuter, 0.1, 32]} />
+              {material}
+            </mesh>
+          </group>
+        );
+      case 'union':
       case 'coupling':
         return (
           <group>
-            {/* Main body */}
             <mesh>
-              <cylinderGeometry args={[radiusOuter, radiusOuter, 0.5 * radiusScale, 32, 1, true]} />
-              {getMaterial('coupling', isSelected)}
+              <cylinderGeometry args={[radiusOuter * 1.2, radiusOuter * 1.2, 0.5 * radiusScale, 32]} />
+              {material}
             </mesh>
             <mesh>
-              <cylinderGeometry args={[radiusInner, radiusInner, 0.5 * radiusScale, 32, 1, true]} />
-              <meshStandardMaterial color="#222" side={THREE.BackSide} />
-            </mesh>
-            {/* Center band */}
-            <mesh>
-              <cylinderGeometry args={[radiusOuter + 0.02, radiusOuter + 0.02, 0.1 * radiusScale, 32]} />
-              <meshStandardMaterial color="#475569" />
-            </mesh>
-            <mesh position={[0, 0.25 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-              {getMaterial('coupling', isSelected)}
-            </mesh>
-            <mesh position={[0, -0.25 * radiusScale, 0]} rotation={[Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-              {getMaterial('coupling', isSelected)}
+              <cylinderGeometry args={[radiusOuter, radiusOuter, 0.6 * radiusScale, 32]} />
+              {material}
             </mesh>
           </group>
         );
       case 'plug':
         return (
           <group>
-            {/* Hex head */}
-            <mesh position={[0, 0.05 * radiusScale, 0]}>
-              <cylinderGeometry args={[radius * 1.2, radius * 1.2, 0.1 * radiusScale, 6]} />
-              {getMaterial('plug', isSelected)}
+            <mesh position={[0, -0.05, 0]}>
+              <cylinderGeometry args={[radiusOuter * 1.1, radiusOuter * 1.1, 0.1, 16]} />
+              {material}
             </mesh>
-            {/* Body */}
-            <mesh position={[0, -0.1 * radiusScale, 0]}>
-              <cylinderGeometry args={[radius, radius, 0.2 * radiusScale, 32]} />
-              <meshStandardMaterial color="#475569" />
+            <mesh position={[0, 0.05, 0]}>
+              <boxGeometry args={[radiusOuter, 0.15, radiusOuter]} />
+              {material}
+            </mesh>
+          </group>
+        );
+      case 'cube':
+        return (
+          <group>
+            <mesh>
+              <boxGeometry args={[radiusOuter * 2, radiusOuter * 2, radiusOuter * 2]} />
+              {material}
+            </mesh>
+          </group>
+        );
+      case 'cone':
+        return (
+          <group>
+            <mesh>
+              <coneGeometry args={[radiusOuter, radiusOuter * 2, 32]} />
+              {material}
             </mesh>
           </group>
         );
       case 'cylinder':
         return (
-          <mesh>
-            <cylinderGeometry args={[radiusOuter, radiusOuter, length, 32]} />
-            {getMaterial('cylinder', isSelected)}
-          </mesh>
-        );
-      case 'cube':
-        return (
-          <mesh>
-            <boxGeometry args={[od, od, od]} />
-            {getMaterial('cube', isSelected)}
-          </mesh>
-        );
-      case 'cone':
-        return (
-          <mesh position={[0, -0.5 * radiusScale, 0]}>
-            <coneGeometry args={[radiusOuter, 1 * radiusScale, 32]} />
-            {getMaterial('cone', isSelected)}
-          </mesh>
+          <group>
+            <mesh>
+              <cylinderGeometry args={[radiusOuter, radiusOuter, 1, 32]} />
+              {material}
+            </mesh>
+          </group>
         );
       default:
-        return <cylinderGeometry args={[radius, radius, length, 16]} />;
+        return (
+          <group>
+            <mesh>
+              <cylinderGeometry args={[radiusOuter, radiusOuter, length || 1, 16]} />
+              {material}
+            </mesh>
+          </group>
+        );
     }
   };
 
-  const isComplex = ['elbow', 'elbow-45', 't-joint', 'cross', 'valve', 'filter', 'tank', 'cap', 'reducer', 'flange', 'union', 'coupling', 'plug', 'cylinder', 'cube', 'cone'].includes(component.component_type);
+  const isComplex = true; // Use group-based rendering for all for consistency
 
   const Label = () => {
     if (!isHovered || isGhost) return null;
     return (
       <Html distanceFactor={10} position={[0, radius + 0.3, 0]}>
-        <div className="smart-label">
+        <div className="smart-label pointer-events-none">
           <div className="flex flex-col">
             <span className="text-[10px] font-black uppercase text-blue-700 leading-none mb-1">System Part</span>
             <span className="text-xs font-bold text-slate-800">{labelText}</span>
@@ -669,53 +530,30 @@ export default function PipeComponent({
     );
   };
 
-  if (isComplex) {
-    return (
-      <group
-        name={component.id}
-        position={position}
-        rotation={rotation}
-        onClick={(e) => { e.stopPropagation(); onSelect(); }}
-        onPointerOver={(e) => { e.stopPropagation(); setIsHovered(true); }}
-        onPointerOut={() => setIsHovered(false)}
-      >
-        {renderGeometry()}
-        <Label />
-        <DimensionLabels />
-        {isSelected && (
-          <BoundingBoxGizmo
-            component={component}
-            onUpdate={onUpdate}
-          />
-        )}
-      </group>
-    );
-  }
-
   return (
-    <mesh
+    <group
       name={component.id}
-      ref={meshRef}
       position={position}
       rotation={rotation}
       onClick={(e) => {
         e.stopPropagation();
-        onSelect();
+        if (!isGhost) onSelect(e);
       }}
-      onPointerOver={(e) => { e.stopPropagation(); setIsHovered(true); }}
+      onPointerOver={(e) => {
+        e.stopPropagation();
+        setIsHovered(true);
+      }}
       onPointerOut={() => setIsHovered(false)}
     >
       {renderGeometry()}
-      {getMaterial(component.component_type, isSelected)}
       <Label />
       <DimensionLabels />
-
       {isSelected && (
         <BoundingBoxGizmo
           component={component}
           onUpdate={onUpdate}
         />
       )}
-    </mesh>
+    </group>
   );
 }

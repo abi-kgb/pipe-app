@@ -1,17 +1,17 @@
 import * as THREE from 'three';
 
 export const MATERIALS = {
-    steel: { id: 'steel', name: 'Carbon Steel', density: 7850, color: '#475569' },
-    ms: { id: 'ms', name: 'Mild Steel', density: 7850, color: '#64748b' },
-    gi: { id: 'gi', name: 'Galvanized Iron', density: 7850, color: '#cbd5e1' },
+    steel: { id: 'steel', name: 'Carbon Steel', density: 7850, color: '#78716c' },
+    ms: { id: 'ms', name: 'Mild Steel', density: 7850, color: '#a8a29e' },
+    gi: { id: 'gi', name: 'Galvanized Iron', density: 7850, color: '#d1d5db' },
     ss304: { id: 'ss304', name: 'SS 304', density: 8000, color: '#e2e8f0' },
-    ss316: { id: 'ss316', name: 'SS 316', density: 8000, color: '#f1f5f9' },
-    copper: { id: 'copper', name: 'Copper', density: 8960, color: '#b45309' },
-    brass: { id: 'brass', name: 'Brass', density: 8500, color: '#d97706' },
-    ci: { id: 'ci', name: 'Cast Iron', density: 7200, color: '#334155' },
-    pvc: { id: 'pvc', name: 'PVC (Polyvinyl)', density: 1400, color: '#ffffff' },
-    cpvc: { id: 'cpvc', name: 'CPVC', density: 1550, color: '#fef3c7' },
-    upvc: { id: 'upvc', name: 'UPVC', density: 1450, color: '#94a3b8' },
+    ss316: { id: 'ss316', name: 'SS 316', density: 8000, color: '#bfdbfe' },
+    copper: { id: 'copper', name: 'Copper', density: 8960, color: '#c2410c' },
+    brass: { id: 'brass', name: 'Brass', density: 8500, color: '#ca8a04' },
+    ci: { id: 'ci', name: 'Cast Iron', density: 7200, color: '#44403c' },
+    pvc: { id: 'pvc', name: 'PVC (Polyvinyl)', density: 1400, color: '#93c5fd' },
+    cpvc: { id: 'cpvc', name: 'CPVC', density: 1550, color: '#fde68a' },
+    upvc: { id: 'upvc', name: 'UPVC', density: 1450, color: '#6ee7b7' },
     hdpe: { id: 'hdpe', name: 'HDPE (Black)', density: 950, color: '#1e293b' },
 };
 
@@ -20,9 +20,9 @@ export const COMPONENT_DEFINITIONS = {
         type: 'straight',
         weightFactor: 0.1,
         standardWeight: 'Sch 40',
-        defaultMaterial: 'steel',
+        defaultMaterial: 'pvc',
         defaultOD: 0.30,
-        defaultWT: 0.02,
+        defaultWT: 0.01,
         sockets: [
             { position: new THREE.Vector3(0, 1, 0), direction: new THREE.Vector3(0, 1, 0) },
             { position: new THREE.Vector3(0, -1, 0), direction: new THREE.Vector3(0, -1, 0) },
@@ -31,9 +31,9 @@ export const COMPONENT_DEFINITIONS = {
     elbow: {
         type: 'elbow',
         weightPerPiece: 1.2,
-        defaultMaterial: 'steel',
+        defaultMaterial: 'pvc',
         defaultOD: 0.30,
-        defaultWT: 0.02,
+        defaultWT: 0.01,
         sockets: [
             { position: new THREE.Vector3(1, 0, 0), direction: new THREE.Vector3(1, 0, 0) },
             { position: new THREE.Vector3(0, 1, 0), direction: new THREE.Vector3(0, 1, 0) },
@@ -42,9 +42,9 @@ export const COMPONENT_DEFINITIONS = {
     'elbow-45': {
         type: 'elbow-45',
         weightPerPiece: 0.9,
-        defaultMaterial: 'steel',
+        defaultMaterial: 'pvc',
         defaultOD: 0.30,
-        defaultWT: 0.02,
+        defaultWT: 0.01,
         sockets: [
             { position: new THREE.Vector3(0.5, -0.2, 0), direction: new THREE.Vector3(1, -1, 0).normalize() },
             { position: new THREE.Vector3(0, 1, 0), direction: new THREE.Vector3(0, 1, 0) },
@@ -53,9 +53,9 @@ export const COMPONENT_DEFINITIONS = {
     vertical: {
         type: 'vertical',
         weightFactor: 0.1,
-        defaultMaterial: 'steel',
+        defaultMaterial: 'pvc',
         defaultOD: 0.30,
-        defaultWT: 0.02,
+        defaultWT: 0.01,
         sockets: [
             { position: new THREE.Vector3(0, 1, 0), direction: new THREE.Vector3(0, 1, 0) },
             { position: new THREE.Vector3(0, -1, 0), direction: new THREE.Vector3(0, -1, 0) },
@@ -64,9 +64,9 @@ export const COMPONENT_DEFINITIONS = {
     't-joint': {
         type: 't-joint',
         weightPerPiece: 1.8,
-        defaultMaterial: 'steel',
+        defaultMaterial: 'pvc',
         defaultOD: 0.30,
-        defaultWT: 0.02,
+        defaultWT: 0.01,
         sockets: [
             { position: new THREE.Vector3(1, 0, 0), direction: new THREE.Vector3(1, 0, 0) },
             { position: new THREE.Vector3(-1, 0, 0), direction: new THREE.Vector3(-1, 0, 0) },
@@ -76,9 +76,9 @@ export const COMPONENT_DEFINITIONS = {
     reducer: {
         type: 'reducer',
         weightPerPiece: 1.1,
-        defaultMaterial: 'steel',
+        defaultMaterial: 'pvc',
         defaultOD: 0.30,
-        defaultWT: 0.02,
+        defaultWT: 0.01,
         sockets: [
             { position: new THREE.Vector3(0, 0.4, 0), direction: new THREE.Vector3(0, 1, 0) },
             { position: new THREE.Vector3(0, -0.4, 0), direction: new THREE.Vector3(0, -1, 0) },
@@ -89,7 +89,7 @@ export const COMPONENT_DEFINITIONS = {
         weightPerPiece: 2.5,
         defaultMaterial: 'steel',
         defaultOD: 0.50,
-        defaultWT: 0.03,
+        defaultWT: 0.01,
         sockets: [
             { position: new THREE.Vector3(0, 0.1, 0), direction: new THREE.Vector3(0, 1, 0) },
             { position: new THREE.Vector3(0, -0.1, 0), direction: new THREE.Vector3(0, -1, 0) },
@@ -98,9 +98,9 @@ export const COMPONENT_DEFINITIONS = {
     union: {
         type: 'union',
         weightPerPiece: 1.4,
-        defaultMaterial: 'steel',
+        defaultMaterial: 'pvc',
         defaultOD: 0.35,
-        defaultWT: 0.02,
+        defaultWT: 0.01,
         sockets: [
             { position: new THREE.Vector3(0, 0.3, 0), direction: new THREE.Vector3(0, 1, 0) },
             { position: new THREE.Vector3(0, -0.3, 0), direction: new THREE.Vector3(0, -1, 0) },
@@ -109,9 +109,9 @@ export const COMPONENT_DEFINITIONS = {
     cross: {
         type: 'cross',
         weightPerPiece: 2.2,
-        defaultMaterial: 'steel',
+        defaultMaterial: 'pvc',
         defaultOD: 0.30,
-        defaultWT: 0.02,
+        defaultWT: 0.01,
         sockets: [
             { position: new THREE.Vector3(1, 0, 0), direction: new THREE.Vector3(1, 0, 0) },
             { position: new THREE.Vector3(-1, 0, 0), direction: new THREE.Vector3(-1, 0, 0) },
@@ -122,9 +122,9 @@ export const COMPONENT_DEFINITIONS = {
     coupling: {
         type: 'coupling',
         weightPerPiece: 0.6,
-        defaultMaterial: 'steel',
+        defaultMaterial: 'pvc',
         defaultOD: 0.34,
-        defaultWT: 0.02,
+        defaultWT: 0.01,
         sockets: [
             { position: new THREE.Vector3(0, 0.25, 0), direction: new THREE.Vector3(0, 1, 0) },
             { position: new THREE.Vector3(0, -0.25, 0), direction: new THREE.Vector3(0, -1, 0) },
@@ -133,9 +133,9 @@ export const COMPONENT_DEFINITIONS = {
     plug: {
         type: 'plug',
         weightPerPiece: 0.2,
-        defaultMaterial: 'steel',
+        defaultMaterial: 'pvc',
         defaultOD: 0.30,
-        defaultWT: 0.02,
+        defaultWT: 0.01,
         sockets: [
             { position: new THREE.Vector3(0, -0.1, 0), direction: new THREE.Vector3(0, -1, 0) },
         ],
@@ -144,7 +144,7 @@ export const COMPONENT_DEFINITIONS = {
         type: 'valve',
         weightPerUnit: 3.5, // kg per piece
         standardWeight: 'Sch 40 / Std. Wt.',
-        defaultMaterial: 'steel',
+        defaultMaterial: 'pvc',
         sockets: [
             { position: new THREE.Vector3(0, 0.75, 0), direction: new THREE.Vector3(0, 1, 0) },
             { position: new THREE.Vector3(0, -0.75, 0), direction: new THREE.Vector3(0, -1, 0) },

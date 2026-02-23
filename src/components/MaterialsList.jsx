@@ -4,6 +4,7 @@ import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { calculateComponentCost, calculateComponentWeight, calculateComponentMetrics, formatIndianNumber } from '../utils/pricing';
+import { getComponentTag } from '../utils/tagging';
 
 export default function MaterialsList({ designName = 'Untitled Project', components, onClose }) {
     const contentRef = useRef(null);
@@ -20,15 +21,8 @@ export default function MaterialsList({ designName = 'Untitled Project', compone
         const metrics = calculateComponentMetrics(comp);
 
         const type = comp.component_type || 'straight';
-
-        // Generate a tag consistent with Scene3D
-        const sameTypePrev = components.slice(0, idx).filter(c => c.component_type === type).length;
-        let prefix = 'P-';
-        if (['elbow', 'elbow-45', 't-joint', 'cross', 'reducer', 'flange', 'union', 'coupling', 'plug', 'cap'].includes(type)) prefix = 'FT-';
-        else if (type === 'valve') prefix = 'V-';
-        else if (type === 'filter') prefix = 'FL-';
-        else if (type === 'tank') prefix = 'T-';
-        const tag = `${prefix}${sameTypePrev + 1}`;
+        const typeIdx = components.filter((c, i) => i < idx && c.component_type === type).length;
+        const tag = getComponentTag(type, typeIdx);
 
         const key = `${type}-${metrics.length}-${metrics.od}-${metrics.material}`;
 
@@ -64,8 +58,9 @@ export default function MaterialsList({ designName = 'Untitled Project', compone
         .filter(c => c.component_type === 'straight' || c.component_type === 'vertical')
         .map((c, idx) => {
             const sameTypePrev = components.slice(0, idx).filter(comp => comp.component_type === c.component_type).length;
+            const tag = getComponentTag(c.component_type, sameTypePrev);
             return {
-                tag: `${c.component_type === 'straight' ? 'P' : 'VP'}-${sameTypePrev + 1}`,
+                tag,
                 material: (c.properties?.material || 'steel').toUpperCase(),
                 length: c.properties?.length || 2,
                 od: c.properties?.od || 0.3

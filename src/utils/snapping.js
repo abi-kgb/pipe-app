@@ -5,7 +5,8 @@ export const findSnapPoint = (
     raycaster,
     components,
     placingType,
-    viewMode = 'iso'
+    viewMode = 'iso',
+    placingTemplate = null
 ) => {
     const getDynamicSocketPos = (component, socket) => {
         const length = component.properties?.length || 2;
@@ -65,7 +66,15 @@ export const findSnapPoint = (
     let closestDist = Infinity;
     let bestSnap = { position: new THREE.Vector3(), rotation: new THREE.Euler(), isValid: false };
 
-    const placingDef = COMPONENT_DEFINITIONS[placingType];
+    // ASSEMBLY SUPPORT: If we are placing an assembly, use the first part's definition for snapping context
+    let effectiveType = placingType;
+    if (placingType === 'assembly' && placingTemplate?.parts?.[0]) {
+        effectiveType = placingTemplate.parts[0].component_type || placingTemplate.parts[0].type;
+    }
+
+    const placingDef = COMPONENT_DEFINITIONS[effectiveType];
+    if (!placingDef) return getFallbackSnap() || bestSnap;
+
     const placingSocket = placingDef.sockets[0];
 
     for (const component of components) {
@@ -84,7 +93,7 @@ export const findSnapPoint = (
             const socketPos = getDynamicSocketPos(component, socket).applyQuaternion(compQuat).add(compPos);
             const distanceToRay = raycaster.ray.distanceSqToPoint(socketPos);
 
-            if (distanceToRay < 4 && distanceToRay < closestDist) {
+            if (distanceToRay < 12.25 && distanceToRay < closestDist) {
                 closestDist = distanceToRay;
 
                 const targetDir = socket.direction.clone().applyQuaternion(compQuat).normalize();
@@ -94,7 +103,7 @@ export const findSnapPoint = (
                 const finalRot = new THREE.Euler().setFromQuaternion(alignQuat);
 
                 // For the placing ghost, we use default properties (radiusScale=1, length=2)
-                const ghostSocketPos = getDynamicSocketPos({ component_type: placingType }, placingSocket);
+                const ghostSocketPos = getDynamicSocketPos({ component_type: effectiveType }, placingSocket);
                 const offset = ghostSocketPos.applyQuaternion(alignQuat);
                 const finalPos = socketPos.clone().sub(offset);
 
