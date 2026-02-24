@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Package, ArrowRight, ArrowUp, Circle, Filter, Droplets, GitBranch, Slash, StopCircle, Trash2, Move, RotateCcw, Scaling, Disc, Hash, Plus, Link, Square, Cylinder, Cuboid, Cone, Layers, MousePointer2, History as HistoryIcon, Clock, Copy, List } from 'lucide-react';
 import { COMPONENT_DEFINITIONS, MATERIALS } from '../config/componentDefinitions';
-import PartsSchedule from './PartsSchedule';
+
 
 const LIBRARY_PARTS = [
   { type: 'straight', label: 'Straight Pipe', icon: <ArrowRight size={20} />, color: '#2563eb' },
@@ -123,16 +123,7 @@ export default function ComponentLibrary({
             My Parts
           </button>
 
-          <button
-            onClick={() => setActiveTab('bom')}
-            className={`flex items-center justify-center gap-1.5 lg:gap-2 py-2.5 lg:py-3 rounded-xl text-[9px] lg:text-[10px] font-black uppercase transition-all tracking-widest border-2 ${activeTab === 'bom'
-              ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-200'
-              : (darkMode ? 'bg-slate-800 text-slate-500 border-slate-700 hover:border-slate-600 hover:text-slate-300' : 'bg-white text-slate-400 border-slate-100 hover:border-blue-100 hover:text-blue-600')
-              }`}
-          >
-            <List size={isMultiSelect ? 14 : 16} />
-            Live BOM
-          </button>
+
 
           <button
             onClick={() => setActiveTab('history')}
@@ -144,19 +135,18 @@ export default function ComponentLibrary({
             <HistoryIcon size={isMultiSelect ? 14 : 16} />
             History
           </button>
+          <button
+            onClick={() => onSetMultiSelectMode(!multiSelectMode)}
+            className={`flex items-center justify-center gap-1.5 lg:gap-2 py-2.5 lg:py-3 rounded-xl text-[9px] lg:text-[10px] font-black uppercase transition-all tracking-widest border-2 ${multiSelectMode
+              ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100'
+              : (darkMode ? 'bg-slate-800 text-slate-500 border-slate-700 hover:border-emerald-900 hover:text-emerald-400' : 'bg-white text-slate-400 border-slate-100 hover:border-blue-100 hover:text-blue-600')
+              }`}
+          >
+            <MousePointer2 size={isMultiSelect ? 14 : 16} />
+            Selection
+          </button>
         </div>
 
-        {/* Multi-Select Toggle Moved Below Grid */}
-        <button
-          onClick={() => onSetMultiSelectMode(!multiSelectMode)}
-          className={`w-full flex items-center justify-center gap-2 py-2 mb-6 rounded-xl text-[9px] font-black uppercase transition-all tracking-[0.2em] border-2 ${multiSelectMode
-            ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-100'
-            : (darkMode ? 'bg-slate-800 text-slate-500 border-slate-700 hover:border-emerald-900 hover:text-emerald-400' : 'bg-blue-50/30 text-slate-400 border-blue-100/50 hover:bg-emerald-50 hover:text-emerald-600')
-            }`}
-        >
-          <MousePointer2 size={12} />
-          {multiSelectMode ? 'Multi-Selection Active' : 'Enable Multi-Select'}
-        </button>
 
         {/* Search Bar */}
         <div className="relative mb-6">
@@ -235,9 +225,19 @@ export default function ComponentLibrary({
               {/* Length Control */}
               {selectedComponents.some(c => ['straight', 'vertical', 'tank'].includes(c.component_type)) && (
                 <div className="space-y-1.5">
-                  <div className={`flex justify-between text-[10px] font-bold uppercase px-1 transition-colors ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                  <div className={`flex justify-between items-center text-[10px] font-bold uppercase px-1 transition-colors ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                     <span>Length / Height</span>
-                    <span className="text-blue-600 font-black">{(selectedComponents[0].properties?.length || 2).toFixed(2)}m</span>
+                    <div className="flex items-center gap-0.5">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={selectedComponents[0].properties?.length || 2}
+                        onChange={(e) => updateProperty('length', parseFloat(e.target.value) || 0)}
+                        className={`w-16 bg-transparent text-right font-black text-blue-600 focus:outline-none focus:bg-blue-500/10 rounded px-1 transition-all ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-blue-50'}`}
+                      />
+                      <span className="text-blue-600 font-black">M</span>
+                    </div>
                   </div>
                   <input
                     type="range"
@@ -253,9 +253,35 @@ export default function ComponentLibrary({
 
               {/* Outside Diameter (OD) */}
               <div className="space-y-1.5">
-                <div className={`flex justify-between text-[10px] font-bold uppercase px-1 transition-colors ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                <div className={`flex justify-between items-center text-[10px] font-bold uppercase px-1 transition-colors ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                   <span>Outside Diameter (OD)</span>
-                  <span className="text-blue-600 font-black">Ø {(selectedComponents[0].properties?.od || (0.30 * (selectedComponents[0].properties?.radiusScale || 1))).toFixed(2)}m</span>
+                  <div className="flex items-center gap-0.5">
+                    <span className="text-blue-600 font-black">Ø</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={selectedComponents[0].properties?.od || (0.30 * (selectedComponents[0].properties?.radiusScale || 1))}
+                      onChange={(e) => {
+                        const newOD = parseFloat(e.target.value) || 0;
+                        const currentWT = selectedComponents[0].properties?.wallThickness || 0.02;
+                        if (isMultiSelect) {
+                          const updated = selectedComponents.map(comp => ({
+                            ...comp,
+                            properties: { ...comp.properties, od: newOD, id: parseFloat((newOD - 2 * (comp.properties?.wallThickness || 0.02)).toFixed(3)) }
+                          }));
+                          onUpdateMultiple(updated);
+                        } else {
+                          onUpdate({
+                            ...selectedComponents[0],
+                            properties: { ...selectedComponents[0].properties, od: newOD, id: parseFloat((newOD - 2 * currentWT).toFixed(3)) }
+                          });
+                        }
+                      }}
+                      className={`w-16 bg-transparent text-right font-black text-blue-600 focus:outline-none focus:bg-blue-500/10 rounded px-1 transition-all ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-blue-50'}`}
+                    />
+                    <span className="text-blue-600 font-black">M</span>
+                  </div>
                 </div>
                 <input
                   type="range"
@@ -296,9 +322,34 @@ export default function ComponentLibrary({
 
               {/* Wall Thickness (WT) */}
               <div className="space-y-1.5">
-                <div className={`flex justify-between text-[10px] font-bold uppercase px-1 transition-colors ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                <div className={`flex justify-between items-center text-[10px] font-bold uppercase px-1 transition-colors ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
                   <span>Wall Thickness (WT)</span>
-                  <span className="text-blue-600 font-black">{(selectedComponents[0].properties?.wallThickness || 0.01).toFixed(3)}m</span>
+                  <div className="flex items-center gap-0.5">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.001"
+                      value={selectedComponents[0].properties?.wallThickness || 0.01}
+                      onChange={(e) => {
+                        const newWT = parseFloat(e.target.value) || 0;
+                        const currentOD = selectedComponents[0].properties?.od || 0.30;
+                        if (isMultiSelect) {
+                          const updated = selectedComponents.map(comp => ({
+                            ...comp,
+                            properties: { ...comp.properties, wallThickness: newWT, id: parseFloat(((comp.properties?.od || 0.30) - 2 * newWT).toFixed(3)) }
+                          }));
+                          onUpdateMultiple(updated);
+                        } else {
+                          onUpdate({
+                            ...selectedComponents[0],
+                            properties: { ...selectedComponents[0].properties, wallThickness: newWT, id: parseFloat((currentOD - 2 * newWT).toFixed(3)) }
+                          });
+                        }
+                      }}
+                      className={`w-16 bg-transparent text-right font-black text-blue-600 focus:outline-none focus:bg-blue-500/10 rounded px-1 transition-all ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-blue-50'}`}
+                    />
+                    <span className="text-blue-600 font-black">M</span>
+                  </div>
                 </div>
                 <input
                   type="range"
@@ -465,15 +516,7 @@ export default function ComponentLibrary({
               )}
             </div>
           </div>
-        ) : activeTab === 'bom' ? (
-          <div className="h-full flex flex-col -mx-6 -mb-6 animate-in fade-in slide-in-from-right-4 duration-300">
-            <PartsSchedule
-              components={components}
-              selectedIds={selectedIds}
-              onSelectComponent={(id) => onSelectComponent ? onSelectComponent(id) : setSelectedIds([id])}
-              darkMode={darkMode}
-            />
-          </div>
+
         ) : activeTab === 'library' ? (
           <div className="space-y-4 animate-in fade-in slide-in-from-left-4 duration-200">
             <div className="grid grid-cols-1 gap-2">

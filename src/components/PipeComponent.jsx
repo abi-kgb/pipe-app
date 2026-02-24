@@ -1,7 +1,6 @@
 import { useRef, useState, memo } from 'react';
-import { Html, Text, Edges } from '@react-three/drei';
+import { Html, Text, Edges, Billboard } from '@react-three/drei';
 import * as THREE from 'three';
-import BoundingBoxGizmo from './BoundingBoxGizmo';
 import { MATERIALS } from '../config/componentDefinitions';
 
 function PipeComponent({
@@ -19,11 +18,11 @@ function PipeComponent({
   const [isHovered, setIsHovered] = useState(false);
 
   const is2D = viewMode !== 'iso';
-  const radiusScale = component.properties?.radiusScale || 1;
-  const length = component.properties?.length || 2;
-  const od = component.properties?.od || (0.30 * radiusScale);
-  const wt = component.properties?.wallThickness || 0.02;
-  const id = component.properties?.id || (od - 2 * wt);
+  const radiusScale = component.properties?.radiusScale ?? 1;
+  const length = component.properties?.length ?? 2;
+  const od = component.properties?.od ?? (0.30 * radiusScale);
+  const wt = component.properties?.wallThickness ?? 0.02;
+  const id = component.properties?.id ?? (od - 2 * wt);
   const radius = od / 2;
 
   const radiusOuter = od / 2;
@@ -61,16 +60,16 @@ function PipeComponent({
       return (
         <>
           <meshStandardMaterial
-            color="#ffffff"
-            emissive="#ffffff"
-            emissiveIntensity={0.1}
-            roughness={1}
-            metalness={0}
+            color="#cbd5e1" // Technical grey-blue for better contrast
+            emissive="#1e3a8a" // Darker blue emissive
+            emissiveIntensity={0.02}
+            roughness={0.9}
+            metalness={0.1}
           />
           <Edges
             threshold={15}
-            color="#00ced1" // Catchy Teal/Cyan
-            lineWidth={2}
+            color="#0891b2" // Darker Cyan/Teal for lines
+            lineWidth={1.5}
           />
         </>
       );
@@ -110,8 +109,8 @@ function PipeComponent({
 
     const isPlastic = ['pvc', 'cpvc', 'upvc', 'hdpe'].includes(materialKey);
     const isSpecialMetal = ['copper', 'brass', 'ss316'].includes(materialKey);
-    let metalness = isPlastic ? 0 : (isSpecialMetal ? 0.9 : 0.6);
-    let roughness = isPlastic ? 0.8 : (isSpecialMetal ? 0.1 : 0.3);
+    let metalness = isPlastic ? 0.05 : (isSpecialMetal ? 1.0 : 0.8);
+    let roughness = isPlastic ? 0.4 : (isSpecialMetal ? 0.05 : 0.2);
 
     return (
       <meshStandardMaterial
@@ -120,6 +119,7 @@ function PipeComponent({
         roughness={isSelected ? 0.2 : roughness}
         emissive={isSelected ? '#1d4ed8' : '#000000'}
         emissiveIntensity={isSelected ? 0.2 : 0}
+        envMapIntensity={isCapture ? 0 : (isPlastic ? 0.5 : 1.5)}
       />
     );
   };
@@ -131,58 +131,63 @@ function PipeComponent({
 
   // Selection Handles & Dimension Labels
   const DimensionLabels = () => {
-    if (viewMode === 'iso' || isGhost) return null;
+    // Only show labels in Front and ISO views during capture (per user request)
+    if (isCapture && !['iso', 'front'].includes(viewMode)) return null;
+
+    // Hide ISO labels in workspace mode to keep it clean, show them in blueprints
+    if ((viewMode === 'iso' && !isCapture) || isGhost) return null;
 
     // Inverse rotation to keep labels upright in technical views
+    const isIso = viewMode === 'iso';
     const invRotation = [
       -((component.rotation_x || 0) * Math.PI) / 180,
       -((component.rotation_y || 0) * Math.PI) / 180,
       -((component.rotation_z || 0) * Math.PI) / 180,
     ];
 
-    // Smarter stagger for Blueprint (Capture) mode to prevent overlapping
-    const captureStaggerX = ((idHash % 7) - 3) * 0.8;
-    const captureStaggerY = ((idHash % 4) + 1.2);
+    // Clean, consistent stagger for Blueprint (Capture) mode
+    // We want the IDs to be CLOSE to the components but not overlapping them.
+    // Instead of random wide spreads, use a consistent 'bubble' offset.
+    const angle = ((idHash % 360) * Math.PI) / 180;
+    const distance = radiusOuter + 1.25; // Constant short distance
+
+    // For blueprint capture, we prefer placing tags at 45, 135, 225, or 315 degrees
+    // to look more technical and intentional.
+    const techAngles = [Math.PI / 4, 3 * Math.PI / 4, 5 * Math.PI / 4, 7 * Math.PI / 4];
+    const techAngle = techAngles[idHash % 4];
+
+    const captureStaggerX = Math.cos(techAngle) * distance;
+    const captureStaggerY = Math.sin(techAngle) * distance;
 
     const finalStaggerX = isCapture ? captureStaggerX : staggerX;
     const finalStaggerY = isCapture ? captureStaggerY : (radiusOuter + 0.45);
 
     return (
       <group rotation={invRotation} position={[0, 0, 0.1]}>
-        {/* Selection Handle Dot - Appears on hover to make clicking easier */}
-        {isHovered && !isCapture && (
-          <mesh onClick={(e) => { e.stopPropagation(); onSelect(e); }}>
-            <sphereGeometry args={[radiusOuter * 1.5, 16, 16]} />
-            <meshBasicMaterial color="#3b82f6" transparent opacity={0.4} />
-            <mesh position={[0, 0, 0]}>
-              <sphereGeometry args={[radiusOuter * 0.4, 16, 16]} />
-              <meshBasicMaterial color="#3b82f6" />
+        {/* Label and Tag Container - Keep text upright even when pipe rotates */}
+        <group position={[finalStaggerX, finalStaggerY, 0.5]}>
+          <Billboard follow={true} lockX={false} lockY={false} lockZ={false}>
+            {/* Tag Bubble Background */}
+            <mesh position={[0, 0, -0.05]}>
+              <circleGeometry args={[isCapture ? 0.35 : 0.25, 32]} />
+              <meshBasicMaterial color="white" />
             </mesh>
-          </mesh>
-        )}
+            <mesh position={[0, 0, -0.06]}>
+              <circleGeometry args={[isCapture ? 0.38 : 0.28, 32]} />
+              <meshBasicMaterial color={isCapture ? "#000000" : "#1d4ed8"} />
+            </mesh>
 
-        {/* Label and Tag Container */}
-        <group position={[finalStaggerX, finalStaggerY, 0.2]}>
-          {/* Tag Bubble Background */}
-          <mesh position={[0, 0, -0.05]}>
-            <circleGeometry args={[isCapture ? 0.35 : 0.25, 32]} />
-            <meshBasicMaterial color="white" />
-          </mesh>
-          <mesh position={[0, 0, -0.06]}>
-            <circleGeometry args={[isCapture ? 0.38 : 0.28, 32]} />
-            <meshBasicMaterial color={isCapture ? "#008b8b" : "#1d4ed8"} />
-          </mesh>
-
-          <Text
-            fontSize={isCapture ? 0.35 : 0.25}
-            color={isCapture ? "#ffffff" : "#1d4ed8"} // White text on dark teal bubble for blueprint
-            font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf"
-            anchorX="center"
-            anchorY="middle"
-            fontWeight="900"
-          >
-            {tag}
-          </Text>
+            <Text
+              fontSize={isCapture ? 0.35 : 0.25}
+              color={isCapture ? "#000000" : "#1d4ed8"} // Black text for blueprint visibility
+              font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf"
+              anchorX="center"
+              anchorY="middle"
+              fontWeight="900"
+            >
+              {tag}
+            </Text>
+          </Billboard>
 
           {/* Leader Line to Pipe (Professional Offset Line) */}
           <mesh
@@ -190,15 +195,17 @@ function PipeComponent({
             rotation={[0, 0, Math.atan2(-finalStaggerY, -finalStaggerX) + Math.PI / 2]}
           >
             <boxGeometry args={[0.02, Math.sqrt(finalStaggerX * finalStaggerX + finalStaggerY * finalStaggerY) - 0.4, 0.01]} />
-            <meshBasicMaterial color={isCapture ? "#008b8b" : "white"} transparent opacity={isCapture ? 1 : 0.6} />
+            <meshBasicMaterial color={isCapture ? "#000000" : "white"} transparent opacity={isCapture ? 1 : 0.6} />
           </mesh>
 
           {/* Leader Dot at component center */}
           <mesh position={[-finalStaggerX, -finalStaggerY, -0.1]}>
             <sphereGeometry args={[0.06, 8, 8]} />
-            <meshBasicMaterial color={isCapture ? "#008b8b" : "white"} />
+            <meshBasicMaterial color={isCapture ? "#000000" : "white"} />
           </mesh>
         </group>
+
+        {/* Detailed Info - Visible on hover only (NOT in capture/blueprint) */}
 
         {/* Detailed Info - Visible on hover only (NOT in capture/blueprint) */}
         {isHovered && !isCapture && !isGhost && (
@@ -229,7 +236,7 @@ function PipeComponent({
               outlineWidth={0.01}
               outlineColor={darkMode ? '#0f172a' : '#ffffff'}
             >
-              {`Ø${od.toFixed(2)} | Ø${id.toFixed(2)} | WT:${wt.toFixed(3)}m`}
+              {`Ø${od.toFixed(2)} | Ø${id.toFixed(2)} | WT:${wt.toFixed(3)}m | Rot:${(component.rotation_y || 0).toFixed(0)}°`}
             </Text>
           </group>
         )}
@@ -320,6 +327,7 @@ function PipeComponent({
         return (
           <group>
             <Hitbox type={type} radius={radiusOuter} radiusScale={radiusScale} />
+            {/* Outer Shell */}
             <mesh position={[0, 0.5 * radiusScale, 0]}>
               <cylinderGeometry args={[radiusOuter, radiusOuter, 1 * radiusScale, 32, 1, true]} />
               {material}
@@ -332,6 +340,29 @@ function PipeComponent({
               <sphereGeometry args={[radiusOuter, 32, 16]} />
               {material}
             </mesh>
+
+            {!isGhost && !isCapture && (
+              <>
+                {/* Hollow Inner Walls */}
+                <mesh position={[0, 0.5 * radiusScale, 0]}>
+                  <cylinderGeometry args={[radiusInner, radiusInner, 1 * radiusScale, 32, 1, true]} />
+                  <meshStandardMaterial color="#222" side={THREE.BackSide} />
+                </mesh>
+                <mesh position={[0.5 * radiusScale, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+                  <cylinderGeometry args={[radiusInner, radiusInner, 1 * radiusScale, 32, 1, true]} />
+                  <meshStandardMaterial color="#222" side={THREE.BackSide} />
+                </mesh>
+                {/* Ring Caps */}
+                <mesh position={[0, 1 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                  {material}
+                </mesh>
+                <mesh position={[1 * radiusScale, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                  {material}
+                </mesh>
+              </>
+            )}
           </group>
         );
       case 't-joint':
@@ -350,17 +381,45 @@ function PipeComponent({
               <sphereGeometry args={[radiusOuter, 16, 16]} />
               {material}
             </mesh>
+            {!isGhost && !isCapture && (
+              <>
+                {/* Hollow Main Body */}
+                <mesh>
+                  <cylinderGeometry args={[radiusInner, radiusInner, 1.5 * radiusScale, 32, 1, true]} />
+                  <meshStandardMaterial color="#222" side={THREE.BackSide} />
+                </mesh>
+                {/* Hollow Branch */}
+                <mesh position={[0.375 * radiusScale, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+                  <cylinderGeometry args={[radiusInner, radiusInner, 0.75 * radiusScale, 32, 1, true]} />
+                  <meshStandardMaterial color="#222" side={THREE.BackSide} />
+                </mesh>
+                {/* Caps */}
+                <mesh position={[0, 0.75 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                  {material}
+                </mesh>
+                <mesh position={[0, -0.75 * radiusScale, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                  {material}
+                </mesh>
+                <mesh position={[0.75 * radiusScale, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                  {material}
+                </mesh>
+              </>
+            )}
           </group>
         );
       case 'elbow-45':
         return (
           <group>
             <Hitbox type={type} radius={radiusOuter} radiusScale={radiusScale} />
+            {/* Outer Shell */}
             <mesh position={[0, 0.35 * radiusScale, 0]}>
               <cylinderGeometry args={[radiusOuter, radiusOuter, 0.7 * radiusScale, 32, 1, true]} />
               {material}
             </mesh>
-            <mesh position={[0.25 * radiusScale, -0.1 * radiusScale, 0]} rotation={[0, 0, Math.PI / 4]}>
+            <mesh position={[0.247 * radiusScale, 0.247 * radiusScale, 0]} rotation={[0, 0, -Math.PI / 4]}>
               <cylinderGeometry args={[radiusOuter, radiusOuter, 0.7 * radiusScale, 32, 1, true]} />
               {material}
             </mesh>
@@ -368,6 +427,31 @@ function PipeComponent({
               <sphereGeometry args={[radiusOuter, 32, 16]} />
               {material}
             </mesh>
+
+            {!isGhost && !isCapture && (
+              <>
+                {/* Hollow Inner Walls */}
+                <mesh position={[0, 0.35 * radiusScale, 0]}>
+                  <cylinderGeometry args={[radiusInner, radiusInner, 0.7 * radiusScale, 32, 1, true]} />
+                  <meshStandardMaterial color="#222" side={THREE.BackSide} />
+                </mesh>
+                <mesh position={[0.247 * radiusScale, 0.247 * radiusScale, 0]} rotation={[0, 0, -Math.PI / 4]}>
+                  <cylinderGeometry args={[radiusInner, radiusInner, 0.7 * radiusScale, 32, 1, true]} />
+                  <meshStandardMaterial color="#222" side={THREE.BackSide} />
+                </mesh>
+                {/* Ring Caps */}
+                <mesh position={[0, 0.7 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                  {material}
+                </mesh>
+                <mesh position={[0.495 * radiusScale, 0.495 * radiusScale, 0]} rotation={[0, 0, -Math.PI / 4]}>
+                  <group rotation={[0, Math.PI / 2, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </group>
+                </mesh>
+              </>
+            )}
           </group>
         );
       case 'valve':
@@ -431,6 +515,37 @@ function PipeComponent({
               <cylinderGeometry args={[radiusOuter, radiusOuter, 2 * radiusScale, 32, 1, true]} />
               {material}
             </mesh>
+            {!isGhost && !isCapture && (
+              <>
+                {/* Hollow Vertical */}
+                <mesh>
+                  <cylinderGeometry args={[radiusInner, radiusInner, 2 * radiusScale, 32, 1, true]} />
+                  <meshStandardMaterial color="#222" side={THREE.BackSide} />
+                </mesh>
+                {/* Hollow Horizontal */}
+                <mesh rotation={[0, 0, Math.PI / 2]}>
+                  <cylinderGeometry args={[radiusInner, radiusInner, 2 * radiusScale, 32, 1, true]} />
+                  <meshStandardMaterial color="#222" side={THREE.BackSide} />
+                </mesh>
+                {/* Caps */}
+                <mesh position={[0, 1 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                  {material}
+                </mesh>
+                <mesh position={[0, -1 * radiusScale, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                  {material}
+                </mesh>
+                <mesh position={[1 * radiusScale, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                  {material}
+                </mesh>
+                <mesh position={[-1 * radiusScale, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
+                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                  {material}
+                </mesh>
+              </>
+            )}
           </group>
         );
       case 'reducer':
@@ -457,6 +572,7 @@ function PipeComponent({
         );
       case 'union':
       case 'coupling':
+        const innerLen = 0.6 * radiusScale;
         return (
           <group>
             <mesh>
@@ -464,9 +580,25 @@ function PipeComponent({
               {material}
             </mesh>
             <mesh>
-              <cylinderGeometry args={[radiusOuter, radiusOuter, 0.6 * radiusScale, 32]} />
+              <cylinderGeometry args={[radiusOuter, radiusOuter, innerLen, 32, 1, true]} />
               {material}
             </mesh>
+            {!isGhost && !isCapture && (
+              <>
+                <mesh>
+                  <cylinderGeometry args={[radiusInner, radiusInner, innerLen, 32, 1, true]} />
+                  <meshStandardMaterial color="#222" side={THREE.BackSide} />
+                </mesh>
+                <mesh position={[0, innerLen / 2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                  {material}
+                </mesh>
+                <mesh position={[0, -innerLen / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                  {material}
+                </mesh>
+              </>
+            )}
           </group>
         );
       case 'plug':
@@ -529,7 +661,6 @@ function PipeComponent({
       <Html distanceFactor={10} position={[0, radius + 0.3, 0]}>
         <div className="smart-label pointer-events-none">
           <div className="flex flex-col">
-            <span className="text-[10px] font-black uppercase text-blue-700 leading-none mb-1">System Part</span>
             <span className="text-xs font-bold text-slate-800">{labelText}</span>
           </div>
         </div>
@@ -555,12 +686,6 @@ function PipeComponent({
       {renderGeometry()}
       <Label />
       <DimensionLabels />
-      {isSelected && (
-        <BoundingBoxGizmo
-          component={component}
-          onUpdate={onUpdate}
-        />
-      )}
     </group>
   );
 }

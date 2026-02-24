@@ -118,7 +118,7 @@ export const COMPONENT_BASE_PRICES = {
 export const calculateComponentCost = (component) => {
     const length = component.properties?.length || 2;
     const def = COMPONENT_DEFINITIONS[component.component_type];
-    const materialKey = component.properties?.material || def?.defaultMaterial || 'steel';
+    const materialKey = component.properties?.material || def?.defaultMaterial || 'pvc';
 
     let cost = 0;
 
@@ -170,9 +170,9 @@ export const calculateComponentWeight = (component) => {
     const def = COMPONENT_DEFINITIONS[component.component_type];
     if (!def) return 0;
 
-    const materialKey = component.properties?.material || def.defaultMaterial || 'steel';
+    const materialKey = component.properties?.material || def.defaultMaterial || 'pvc';
     const material = MATERIALS[materialKey];
-    const density = material ? material.density : 7850;
+    const density = material ? material.density : 1400;
 
     const length = component.properties?.length || 1;
     const radiusScale = component.properties?.radiusScale || 1;
@@ -328,9 +328,9 @@ export const calculateComponentMetrics = (component) => {
     const def = COMPONENT_DEFINITIONS[component.component_type];
     if (!def) return { weight: 0, volume: 0, od: 0, thick: 0, length: 0 };
 
-    const materialKey = component.properties?.material || def.defaultMaterial || 'steel';
+    const materialKey = component.properties?.material || def.defaultMaterial || 'pvc';
     const material = MATERIALS[materialKey];
-    const density = material ? material.density : 7850;
+    const density = material ? material.density : 1400;
 
     const length = component.properties?.length || 1;
     const radiusScale = component.properties?.radiusScale || 1;
@@ -355,8 +355,8 @@ export const calculateComponentMetrics = (component) => {
 export const calculateTotalCost = (components, includeGST = false) => {
     const subtotal = components.reduce((total, comp) => {
         const weight = calculateComponentWeight(comp);
-        const materialKey = comp.properties?.material || 'default';
-        const ratePerKg = MATERIAL_PRICE_PER_KG[materialKey] ?? MATERIAL_PRICE_PER_KG.default;
+        const materialKey = comp.properties?.material || 'pvc';
+        const ratePerKg = MATERIAL_PRICE_PER_KG[materialKey] ?? MATERIAL_PRICE_PER_KG.pvc;
         return total + weight * ratePerKg;
     }, 0);
 

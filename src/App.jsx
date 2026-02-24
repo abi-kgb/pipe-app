@@ -5,11 +5,12 @@ import ComponentLibrary from './components/ComponentLibrary';
 import Toolbar from './components/Toolbar';
 import { calculateTotalCost } from './utils/pricing';
 import MaterialsList from './components/MaterialsList';
-import PartsSchedule from './components/PartsSchedule';
 import ResizablePane from './components/ResizablePane';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getComponentTag } from './utils/tagging';
+import * as XLSX from 'xlsx';
+import { calculateComponentMetrics, calculateComponentCost } from './utils/pricing';
 
 function App() {
   const [components, setComponents] = useState([]);
@@ -21,8 +22,9 @@ function App() {
   const [showMaterials, setShowMaterials] = useState(false);
   const [transformMode, setTransformMode] = useState('translate');
   const [multiSelectMode, setMultiSelectMode] = useState(false);
-  const [showSchedule, setShowSchedule] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
   const sceneRef = useRef(null); // ref to Scene3D for export control
+  const lastPlacementTime = useRef(0);
   const [darkMode, setDarkMode] = useState(() => {
     return localStorage.getItem('pipe3d_theme') === 'dark';
   });
@@ -70,10 +72,12 @@ function App() {
 
       const updatedStack = [...nextStack, JSON.parse(JSON.stringify(newComps))];
       // Limit history to 50 steps
-      if (updatedStack.length > 50) return updatedStack.slice(1);
-      return updatedStack;
+      const finalStack = updatedStack.length > 50 ? updatedStack.slice(1) : updatedStack;
+
+      // Update index to match the new stack top
+      setHistoryIndex(finalStack.length - 1);
+      return finalStack;
     });
-    setHistoryIndex(prev => Math.min(prev + 1, 49));
   }, [historyIndex]);
 
   const handleUndo = useCallback(() => {
@@ -199,6 +203,13 @@ function App() {
 
   const handlePlaceComponent = useCallback((position, rotation, properties = {}) => {
     if (!placingType) return;
+
+    // Debounce placement to prevent rapid-fire double components
+    if (Date.now() - lastPlacementTime.current < 350) {
+      console.warn('Pipe3D: Double-placement prevented.');
+      return;
+    }
+    lastPlacementTime.current = Date.now();
 
     // ASSEMBLY MODE: If the template has multiple parts
     if (placingTemplate?.isAssembly && placingTemplate.parts) {
@@ -525,6 +536,44 @@ function App() {
   }, [handleCancelPlacement, selectedIds, handleDeleteComponents, handleDuplicateComponents, handleUndo, handleRedo, components, clipboard, saveToHistory]);
 
 
+  const handleExportExcel = useCallback(() => {
+    if (components.length === 0) {
+      alert('No components to export.');
+      return;
+    }
+
+    const bomData = components.map((comp, idx) => {
+      const metrics = calculateComponentMetrics(comp);
+      const cost = calculateComponentCost(comp);
+      const typeIdx = components.filter((c, i) => i < idx && c.component_type === comp.component_type).length;
+      const tag = getComponentTag(comp.component_type, typeIdx);
+
+      return {
+        'Tag': tag,
+        'Component': comp.component_type.replace('-', ' ').toUpperCase(),
+        'Material': metrics.material,
+        'OD (m)': metrics.od.toFixed(3),
+        'Thick (m)': metrics.thick.toFixed(4),
+        'Length (m)': metrics.length.toFixed(2),
+        'Weight (kg)': metrics.weight.toFixed(2),
+        'Volume (m3)': metrics.volume.toFixed(5),
+        'Base Price (INR)': cost.toFixed(2),
+        'GST 18% (INR)': (cost * 0.18).toFixed(2),
+        'Total Price (INR)': (cost * 1.18).toFixed(2)
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(bomData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Bill of Materials');
+
+    // Auto-size columns
+    const max_width = bomData.reduce((w, r) => Math.max(w, ...Object.values(r).map(v => v.toString().length)), 10);
+    worksheet['!cols'] = Object.keys(bomData[0]).map(() => ({ wch: max_width + 2 }));
+
+    const safeName = designName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    XLSX.writeFile(workbook, `${safeName}_bom.xlsx`);
+  }, [components, designName]);
 
   const handleSaveDesign = async () => {
     try {
@@ -623,13 +672,17 @@ function App() {
         drawPage(label, images[key], isBlue);
       });
 
-      // ── Step 4: Add Parts Schedule Table Page ────────────────────────────
+      // ── Step 4: Add Parts Schedule Table Page (BLUEPRINT THEME) ─────────
       pdf.addPage('landscape');
 
+      // Blue background for schedule page
+      pdf.setFillColor(30, 64, 175);
+      pdf.rect(0, 0, W, H, 'F');
+
       // Header for Schedule Page
-      pdf.setFillColor(30, 58, 138);
+      pdf.setFillColor(255, 255, 255);
       pdf.rect(5, 5, W - 10, 12, 'F');
-      pdf.setTextColor(255, 255, 255);
+      pdf.setTextColor(30, 64, 175);
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(10);
       pdf.text('PARTS SCHEDULE — FABRICATION LIST', W / 2, 12.5, { align: 'center' });
@@ -658,25 +711,37 @@ function App() {
         startY: 22,
         head: [['ID', 'Type', 'Material', 'Outer Diameter', 'Cut Length']],
         body: tableData,
-        theme: 'striped',
-        headStyles: { fillColor: [30, 58, 138], fontSize: 9, fontStyle: 'bold' },
-        bodyStyles: { fontSize: 8, textColor: [51, 65, 85] },
-        alternateRowStyles: { fillColor: [241, 245, 249] },
+        theme: 'plain',
+        headStyles: {
+          fillColor: [255, 255, 255],
+          textColor: [30, 64, 175],
+          fontSize: 9,
+          fontStyle: 'bold',
+          lineWidth: 0.1,
+          lineColor: [255, 255, 255]
+        },
+        bodyStyles: {
+          fontSize: 8,
+          textColor: [255, 255, 255],
+          fillColor: [30, 64, 175],
+          lineWidth: 0.1,
+          lineColor: [255, 255, 255, 0.2]
+        },
         margin: { left: 8, right: 8 },
         styles: { font: 'helvetica', cellPadding: 3 }
       });
 
       // Footer for Schedule Page
-      pdf.setFillColor(241, 245, 249);
+      pdf.setFillColor(30, 64, 175);
       pdf.rect(5, H - 13, W - 10, 8, 'F');
-      pdf.setDrawColor(30, 58, 138); pdf.setLineWidth(0.4);
+      pdf.setDrawColor(255, 255, 255); pdf.setLineWidth(0.4);
       pdf.line(5, H - 13, W - 5, H - 13);
-      pdf.setTextColor(30, 41, 59); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(7.5);
+      pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(7.5);
       pdf.text(`PROJECT: ${designName.toUpperCase()}`, 10, H - 7.5);
       pdf.text(`TOTAL COMPONENTS: ${components.length}`, W / 2, H - 7.5, { align: 'center' });
       pdf.text(`DATE: ${dateStr}  |  REV: 01-A`, W - 10, H - 7.5, { align: 'right' });
 
-      pdf.setDrawColor(30, 58, 138); pdf.setLineWidth(1.2);
+      pdf.setDrawColor(255, 255, 255); pdf.setLineWidth(1.2);
       pdf.rect(5, 5, W - 10, H - 10);
 
       pdf.save(`${designName.replace(/ /g, '_')}_Blueprint.pdf`);
@@ -740,14 +805,13 @@ function App() {
         designName={designName}
         onRename={setDesignName}
         onSave={handleSaveDesign}
+        onExportExcel={handleExportExcel}
         onNewDesign={handleNewDesign}
         componentCount={components.length}
         totalCost={totalCost}
         onShowMaterials={() => setShowMaterials(true)}
         darkMode={darkMode}
         onToggleTheme={() => setDarkMode(!darkMode)}
-        showSchedule={showSchedule}
-        onToggleSchedule={() => setShowSchedule(!showSchedule)}
         isMobile={isMobile}
         onToggleLibrary={() => setShowLibrary(!showLibrary)}
         showLibrary={showLibrary}
@@ -755,6 +819,8 @@ function App() {
         canRedo={historyIndex < historyStack.length - 1}
         onUndo={handleUndo}
         onRedo={handleRedo}
+        isLocked={isLocked}
+        onToggleLock={() => setIsLocked(!isLocked)}
       />
 
       {showMaterials && (
@@ -789,6 +855,7 @@ function App() {
                 onSetTransformMode={setTransformMode}
                 designName={designName}
                 darkMode={darkMode}
+                isLocked={isLocked}
               />
 
               {/* Mobile Library Overlay */}
@@ -828,22 +895,7 @@ function App() {
                 </div>
               )}
 
-              {/* Mobile Schedule Overlay */}
-              {showSchedule && (
-                <div
-                  className="absolute inset-0 z-50 bg-black/20 backdrop-blur-sm transition-all duration-300 animate-in fade-in"
-                  onClick={() => setShowSchedule(false)}
-                >
-                  <div
-                    className="w-full h-4/5 mt-auto bg-white rounded-t-3xl shadow-2xl animate-in slide-in-from-bottom duration-300 overflow-hidden"
-                    onClick={e => e.stopPropagation()}
-                  >
-                    <div className="h-full p-2 overflow-hidden">
-                      <PartsSchedule components={components} darkMode={darkMode} />
-                    </div>
-                  </div>
-                </div>
-              )}
+
             </div>
           </div>
         ) : (
@@ -896,6 +948,7 @@ function App() {
                   onSetTransformMode={setTransformMode}
                   designName={designName}
                   darkMode={darkMode}
+                  isLocked={isLocked}
                 />
               </div>
             }

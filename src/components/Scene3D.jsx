@@ -12,7 +12,9 @@ import {
   OrthographicCamera,
   GizmoHelper,
   GizmoViewport,
-  Text
+  Text,
+  Environment,
+  ContactShadows
 } from '@react-three/drei';
 import PipeComponent from './PipeComponent';
 import { findSnapPoint } from '../utils/snapping';
@@ -76,6 +78,9 @@ const SharedSceneElements = ({
   onBatchSelect,
   isCapture = false,
   placingTemplate,
+  isDragging,
+  isTransforming,
+  suppressLabels = false,
 }) => {
   const bgColor = isCapture ? '#ffffff' : (darkMode ? '#0f172a' : '#ffffff');
   const gridCellColor = darkMode ? '#1e293b' : '#e2e8f0';
@@ -84,9 +89,25 @@ const SharedSceneElements = ({
   return (
     <>
       <color attach="background" args={[bgColor]} />
-      <ambientLight intensity={darkMode ? 1.0 : 1.5} />
-      <pointLight position={[10, 10, 10]} intensity={darkMode ? 1.0 : 1.5} />
-      <spotLight position={[-10, 20, 10]} angle={0.15} penumbra={1} intensity={darkMode ? 1.5 : 2} castShadow />
+      <ambientLight intensity={darkMode ? 0.8 : 1.2} />
+      <pointLight position={[10, 10, 10]} intensity={darkMode ? 0.8 : 1.2} />
+      <spotLight position={[-10, 20, 10]} angle={0.15} penumbra={1} intensity={darkMode ? 1.0 : 1.5} castShadow />
+
+      {/* Realistic Environment Refelctions */}
+      <Environment preset="city" />
+
+      {/* Grounding Contact Shadows */}
+      {!isCapture && (
+        <ContactShadows
+          position={[0, -0.01, 0]}
+          opacity={0.4}
+          scale={50}
+          blur={2}
+          far={10}
+          resolution={256}
+          color={darkMode ? "#000000" : "#334155"}
+        />
+      )}
 
       {/* Click Plane REMOVED to prevent cross-viewport selection clearing */}
 
@@ -104,13 +125,7 @@ const SharedSceneElements = ({
             infiniteGrid
           />
 
-          {/* World Origin Coordinate Axis */}
-          <group>
-            <primitive object={new THREE.AxesHelper(5)} />
-            <Text position={[5.5, 0, 0]} fontSize={0.8} color="#f43f5e" font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf">X</Text>
-            <Text position={[0, 5.5, 0]} fontSize={0.8} color="#10b981" font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf">Y</Text>
-            <Text position={[0, 0, 5.5]} fontSize={0.8} color="#3b82f6" font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf">Z</Text>
-          </group>
+
         </>
       )}
 
@@ -135,6 +150,7 @@ const SharedSceneElements = ({
                 darkMode={darkMode}
                 tag={tag}
                 isCapture={isCapture}
+                suppressLabels={suppressLabels}
               />
             );
           });
@@ -158,6 +174,7 @@ const SharedSceneElements = ({
           components={components}
           onUpdateMultiple={onUpdateMultiple}
           transformMode={transformMode}
+          isTransforming={isTransforming}
         />
       )}
 
@@ -166,97 +183,117 @@ const SharedSceneElements = ({
         <SelectionManager
           components={components}
           onBatchSelect={onBatchSelect}
+          isDragging={isDragging}
         />
       )}
     </>
   );
 };
 
-const SelectionManager = ({ components, onBatchSelect }) => {
-  const { camera, gl, size } = useThree();
+const SelectionManager = ({ components, onBatchSelect, isDragging }) => {
+  const { camera, size, pointer, gl } = useThree();
   const [start, setStart] = useState(null);
-  const [end, setEnd] = useState(null);
-  const isDragging = useRef(false);
+  const [current, setCurrent] = useState(null);
+  const startPointer = useRef(null);
 
   useEffect(() => {
-    const handleDown = (e) => {
-      if (e.target !== gl.domElement) return;
+    const canvas = gl.domElement;
+    if (!canvas) return;
 
-      isDragging.current = true;
-      const rect = gl.domElement.getBoundingClientRect();
-      setStart({ x: e.clientX - rect.left, y: e.clientY - rect.top });
-      setEnd({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    const handleDown = (e) => {
+      // Only trigger on left click
+      if (e.button !== 0) return;
+
+      // Ensure we're clicking the actual canvas or its children (not external UI)
+      if (e.target !== canvas && !canvas.contains(e.target)) return;
+
+      // Reset dragging state just in case it got stuck
+      isDragging.current = false;
+
+      // Store current normalized pointer position
+      startPointer.current = { x: pointer.x, y: pointer.y };
     };
 
     const handleMove = (e) => {
-      if (!isDragging.current) return;
-      const rect = gl.domElement.getBoundingClientRect();
-      setEnd({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      if (!startPointer.current) return;
+
+      // Calculate distance in normalized coordinates to determine if dragging
+      const dx = pointer.x - startPointer.current.x;
+      const dy = pointer.y - startPointer.current.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      // Threshold: approx 8 pixels in normalized space (depends on size, but 0.01 is usually safe)
+      if (!isDragging.current && dist > 0.01) {
+        isDragging.current = true;
+      }
+
+      if (isDragging.current) {
+        setStart(startPointer.current);
+        setCurrent({ x: pointer.x, y: pointer.y });
+      }
     };
 
     const handleUp = (e) => {
-      if (!isDragging.current) return;
+      const wasDragging = isDragging.current;
       isDragging.current = false;
 
-      if (start && end) {
-        const rect = {
-          left: Math.min(start.x, end.x),
-          top: Math.min(start.y, end.y),
-          right: Math.max(start.x, end.x),
-          bottom: Math.max(start.y, end.y)
+      if (wasDragging && startPointer.current) {
+        const finalStart = startPointer.current;
+        const finalEnd = { x: pointer.x, y: pointer.y };
+
+        const bounds = {
+          left: Math.min(finalStart.x, finalEnd.x),
+          right: Math.max(finalStart.x, finalEnd.x),
+          top: Math.max(finalStart.y, finalEnd.y), // Y is inverted in NDC
+          bottom: Math.min(finalStart.y, finalEnd.y)
         };
 
-        if (rect.right - rect.left > 5 || rect.bottom - rect.top > 5) {
-          const selectedIds = [];
+        const batch = [];
+        components.forEach(comp => {
+          const pos = new THREE.Vector3(comp.position_x, comp.position_y, comp.position_z);
+          pos.project(camera); // Projects to NDC (-1 to 1)
 
-          components.forEach(comp => {
-            const pos = new THREE.Vector3(comp.position_x, comp.position_y, comp.position_z);
-            pos.project(camera);
+          if (pos.x >= bounds.left && pos.x <= bounds.right &&
+            pos.y >= bounds.bottom && pos.y <= bounds.top) {
+            batch.push(comp.id);
+          }
+        });
 
-            const screenX = (pos.x + 1) * size.width / 2;
-            const screenY = (-pos.y + 1) * size.height / 2;
-
-            if (screenX >= rect.left && screenX <= rect.right &&
-              screenY >= rect.top && screenY <= rect.bottom) {
-              selectedIds.push(comp.id);
-            }
-          });
-
-          if (onBatchSelect) onBatchSelect(selectedIds, e);
-        }
+        if (onBatchSelect) onBatchSelect(batch, e);
       }
 
       setStart(null);
-      setEnd(null);
+      setCurrent(null);
+      startPointer.current = null;
     };
 
-    gl.domElement.addEventListener('pointerdown', handleDown);
+    canvas.addEventListener('pointerdown', handleDown);
     window.addEventListener('pointermove', handleMove);
     window.addEventListener('pointerup', handleUp);
 
     return () => {
-      gl.domElement.removeEventListener('pointerdown', handleDown);
+      canvas.removeEventListener('pointerdown', handleDown);
       window.removeEventListener('pointermove', handleMove);
       window.removeEventListener('pointerup', handleUp);
     };
-  }, [gl, camera, size, components, onBatchSelect, start, end]);
+  }, [camera, size, pointer, gl, components, onBatchSelect]);
 
-  if (!start || !end) return null;
+  if (!start || !current) return null;
 
-  const left = Math.min(start.x, end.x);
-  const top = Math.min(start.y, end.y);
-  const width = Math.abs(start.x - end.x);
-  const height = Math.abs(start.y - end.y);
+  const left = ((Math.min(start.x, current.x) + 1) / 2) * 100;
+  const top = ((1 - Math.max(start.y, current.y)) / 2) * 100;
+  const width = (Math.abs(current.x - start.x) / 2) * 100;
+  const height = (Math.abs(current.y - start.y) / 2) * 100;
 
   return (
-    <Html fullscreen pointerEvents="none">
+    <Html fullscreen style={{ pointerEvents: 'none' }}>
       <div
         style={{
           position: 'absolute',
-          left,
-          top,
-          width,
-          height,
+          left: `${left}%`,
+          top: `${top}%`,
+          width: `${width}%`,
+          height: `${height}%`,
           border: '1.5px dashed #3b82f6',
           backgroundColor: 'rgba(59, 130, 246, 0.1)',
           borderRadius: '2px',
@@ -314,6 +351,11 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
     if (dist > 10) return;
 
     if (snap && snap.isValid) {
+      // Small local protection to prevent double-firing while App is processing
+      if (e.target._isPlacing) return;
+      e.target._isPlacing = true;
+      setTimeout(() => { if (e.target) e.target._isPlacing = false; }, 400);
+
       onPlace(
         [snap.position.x, snap.position.y, snap.position.z],
         [snap.rotation.x * (180 / Math.PI), snap.rotation.y * (180 / Math.PI), snap.rotation.z * (180 / Math.PI)]
@@ -322,8 +364,6 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
   };
 
   if (!snap) return null;
-
-  const isSnappedToSocket = snap.targetComponentId != null;
 
   const ghostComponent = {
     id: 'ghost',
@@ -335,10 +375,10 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
     rotation_y: snap.rotation.y * (180 / Math.PI),
     rotation_z: snap.rotation.z * (180 / Math.PI),
     connections: [],
-    properties: {},
+    properties: placingTemplate?.properties || {}, // Use template properties for ghost rendering
     _isGhost: true,
     _isValid: snap.isValid,
-    _isSnapped: isSnappedToSocket
+    _isSnapped: snap.isSnappedToSocket
   };
 
   return (
@@ -418,17 +458,26 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
       >
         {/* Visual Indicator */}
         <mesh>
-          <sphereGeometry args={[isSnappedToSocket ? 0.25 : 0.15, 16, 16]} />
+          <sphereGeometry args={[snap.isSnappedToSocket ? 0.35 : 0.15, 16, 16]} />
           <meshBasicMaterial
-            color={snap.isValid ? '#10b981' : '#f43f5e'}
+            color={snap.isSnappedToSocket ? '#10b981' : (snap.isValid ? '#06b6d4' : '#f43f5e')}
             transparent
-            opacity={0.6}
+            opacity={snap.isSnappedToSocket ? 0.9 : 0.4}
             depthTest={false} // Always on top
           />
         </mesh>
+
+        {/* Secondary ring for high visibility during snapping */}
+        {snap.isSnappedToSocket && (
+          <mesh rotation={[Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[0.4, 0.5, 32]} />
+            <meshBasicMaterial color="#10b981" transparent opacity={0.6} depthTest={false} />
+          </mesh>
+        )}
+
         {/* Invisible Click Hitbox - Makes the bubble easy to click */}
         <mesh visible={false}>
-          <sphereGeometry args={[0.6, 16, 16]} />
+          <sphereGeometry args={[0.8, 16, 16]} />
           <meshBasicMaterial color="red" transparent opacity={0.1} />
         </mesh>
       </group>
@@ -436,7 +485,7 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
   );
 };
 
-const EditorControls = ({ selectedIds, components, onUpdateMultiple, transformMode }) => {
+const EditorControls = ({ selectedIds, components, onUpdateMultiple, transformMode, isTransforming }) => {
   const { scene } = useThree();
   const pivotRef = useRef();
   const [isReady, setIsReady] = useState(false);
@@ -472,6 +521,8 @@ const EditorControls = ({ selectedIds, components, onUpdateMultiple, transformMo
     setIsReady(true);
   }, [selectedIds, scene]);
 
+  const [currentAngle, setCurrentAngle] = useState(0);
+
   if (selectedIds.length === 0) return null;
 
   return (
@@ -482,28 +533,45 @@ const EditorControls = ({ selectedIds, components, onUpdateMultiple, transformMo
           object={pivotRef.current}
           mode={transformMode}
           size={0.6}
+          rotationSnap={Math.PI / 12} // 15 degrees
           onMouseDown={() => {
+            isTransforming.current = true;
             const pivot = pivotRef.current;
             if (!pivot) return;
 
             selectedIds.forEach(id => {
               const obj = scene.getObjectByName(id);
               if (obj) {
-                // Important: Update world matrix before attaching
                 obj.updateMatrixWorld();
                 pivot.attach(obj);
               }
             });
+          }}
+          onChange={() => {
+            if (transformMode === 'rotate' && pivotRef.current) {
+              const rot = pivotRef.current.rotation;
+              // Show the absolute largest rotation value across all axes
+              const maxRot = Math.max(
+                Math.abs(rot.x),
+                Math.abs(rot.y),
+                Math.abs(rot.z)
+              );
+              setCurrentAngle(Math.round((maxRot * 180) / Math.PI));
+            }
           }}
           onMouseUp={() => {
             const pivot = pivotRef.current;
             if (!pivot) return;
 
             const updates = [];
-            selectedIds.forEach(id => {
+            // Use pivot.children to find all attached objects, or iterate selectedIds
+            // Iterate in a clone of the children array since scene.attach removes them from pivot during iteration
+            const children = [...pivot.children];
+
+            children.forEach(obj => {
+              const id = obj.name;
               const comp = components.find(c => c.id === id);
-              const obj = scene.getObjectByName(id);
-              if (comp && obj) {
+              if (comp) {
                 // Return to scene before reading world position
                 scene.attach(obj);
                 obj.updateMatrixWorld();
@@ -517,15 +585,43 @@ const EditorControls = ({ selectedIds, components, onUpdateMultiple, transformMo
                   rotation_y: obj.rotation.y * (180 / Math.PI),
                   rotation_z: obj.rotation.z * (180 / Math.PI),
                 });
+              } else {
+                // If it's not a component we track, still move it back to scene but don't add to updates
+                scene.attach(obj);
               }
             });
 
-            // Batch update all components
+            // If some selectedIds were NOT children of pivot for some reason, re-attach them just in case
+            selectedIds.forEach(id => {
+              const obj = scene.getObjectByName(id);
+              if (obj && obj.parent === pivot) {
+                scene.attach(obj);
+              }
+            });
+
             if (updates.length > 0) {
               onUpdateMultiple(updates);
             }
+            setCurrentAngle(0);
+
+            // Critical: Keep isTransforming true for a bit to swallow the click leakage
+            // This prevents the "selection shift" to the component under the mouse
+            setTimeout(() => {
+              isTransforming.current = false;
+            }, 150);
           }}
         />
+      )}
+      {transformMode === 'rotate' && pivotRef.current && (
+        <Html
+          position={[pivotRef.current.position.x, pivotRef.current.position.y + 1.2, pivotRef.current.position.z]}
+          center
+          zIndexRange={[2000, 3000]}
+        >
+          <div className="bg-blue-600/95 backdrop-blur-md text-white px-3 py-1.5 rounded-full text-[13px] font-black shadow-2xl border-2 border-white/30 whitespace-nowrap animate-in zoom-in duration-150">
+            {currentAngle}°
+          </div>
+        </Html>
       )}
     </>
   );
@@ -576,7 +672,7 @@ function StableResetButton({ onReset, darkMode }) {
 // ---------------------------------------------------------
 // COMPONENT: ViewportCameraControls
 // ---------------------------------------------------------
-const ViewportCameraControls = ({ viewMode, setResetHandler, selectedIds, components }) => {
+const ViewportCameraControls = ({ viewMode, setResetHandler, selectedIds, components, isLocked }) => {
   const prevSelectedId = useRef(null);
   const controlsRef = useRef();
 
@@ -629,7 +725,7 @@ const ViewportCameraControls = ({ viewMode, setResetHandler, selectedIds, compon
           center.x, center.y, center.z,
           animate
         );
-        controlsRef.current.zoomTo(250 / (fitRadius * 2), animate);
+        controlsRef.current.zoomTo(550 / (fitRadius * 2), animate);
       } else {
         // ISO view
         controlsRef.current.setLookAt(
@@ -654,6 +750,12 @@ const ViewportCameraControls = ({ viewMode, setResetHandler, selectedIds, compon
   // Sync camera when selection changes
   useEffect(() => {
     const selectedId = selectedIds[0];
+    // Guard: Prevent auto-jump if the camera is LOCKED
+    if (isLocked) {
+      prevSelectedId.current = selectedId;
+      return;
+    }
+
     // Only jump if the selection actually CHANGED, not if a selected item is being moved
     if (selectedId && selectedId !== prevSelectedId.current && components && controlsRef.current) {
       const selectedComp = components.find(c => c.id === selectedId);
@@ -679,6 +781,10 @@ const ViewportCameraControls = ({ viewMode, setResetHandler, selectedIds, compon
     setResetHandler(handleReset);  // store handleReset directly so fn(true) calls handleReset(true)
   }, [handleReset, setResetHandler]);
 
+  const mouseButtons = isLocked
+    ? { left: 0, middle: 0, right: 0, wheel: 0 }
+    : (viewMode !== 'iso' ? { left: 2, middle: 0, right: 0, wheel: 16 } : { left: 1, middle: 0, right: 2, wheel: 16 });
+
   return (
     <>
       <CameraControls
@@ -686,8 +792,9 @@ const ViewportCameraControls = ({ viewMode, setResetHandler, selectedIds, compon
         makeDefault
         dollyToCursor
         dollyMode="zoom"
-        mouseButtons={viewMode !== 'iso' ? { left: 2, middle: 0, right: 0, wheel: 16 } : { left: 1, middle: 0, right: 2, wheel: 16 }}
-        enableRotate={viewMode === 'iso'}
+        mouseButtons={mouseButtons}
+        enableRotate={!isLocked && viewMode === 'iso'}
+        enabled={!isLocked}
         minZoom={0.01}
         maxZoom={100}
       />
@@ -699,65 +806,10 @@ const ViewportCameraControls = ({ viewMode, setResetHandler, selectedIds, compon
 // ---------------------------------------------------------
 // COMPONENT: TitleBlock
 // ---------------------------------------------------------
-function TitleBlock({ designName, darkMode }) {
-  const date = new Date().toLocaleDateString('en-GB');
-  const mutedText = darkMode ? 'text-slate-500' : 'text-slate-400';
-  const textColor = darkMode ? 'text-slate-100' : 'text-slate-900';
-
-  // Blueprint specific styling (Teal/Cyan accents on white)
-  const isBlueprintTheme = !darkMode;
-  const accentColor = isBlueprintTheme ? 'text-[#00b5ad]' : 'text-blue-500';
-  const accentBorder = isBlueprintTheme ? 'border-[#00b5ad]' : (darkMode ? 'border-blue-500' : 'border-slate-900');
-
-  return (
-    <div className={`absolute bottom-6 right-6 backdrop-blur-md border-2 p-4 w-72 shadow-xl z-20 font-mono text-[9px] uppercase tracking-tighter transition-colors pointer-events-none select-none ${darkMode ? 'bg-slate-900/80 border-blue-900/50' : 'bg-white/60 border-slate-900 hover:bg-white/90'}`}>
-      <div className={`grid grid-cols-2 border-b-2 mb-2 pb-2 ${accentBorder}`}>
-        <div className={`border-r-2 pr-2 ${accentBorder}`}>
-          <div className={`${mutedText} mb-1`}>Project</div>
-          <div className={`font-black truncate ${textColor}`}>{designName || 'Untitled'}</div>
-        </div>
-        <div className="pl-2">
-          <div className={`${mutedText} mb-1`}>Company</div>
-          <div className={`font-black italic ${accentColor}`}>Pipe3D PRO</div>
-        </div>
-      </div>
-
-      <div className={`grid grid-cols-3 border-b-2 mb-2 pb-2 ${accentBorder}`}>
-        <div className={`border-r-2 pr-2 ${accentBorder}`}>
-          <div className={`${mutedText} mb-1`}>Date</div>
-          <div className={`font-black ${textColor}`}>{date}</div>
-        </div>
-        <div className="pl-2 col-span-2">
-          <div className={`${mutedText} mb-1`}>Status</div>
-          <div className={`font-black ${accentColor}`}>APPROVED FOR CONSTRUCTION</div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-2">
-        <div className={`border-r-2 pr-1 ${accentBorder}`}>
-          <div className={`${mutedText}`}>Rev</div>
-          <div className={`font-black ${textColor}`}>01-A</div>
-        </div>
-        <div className={`border-r-2 pr-1 ${accentBorder}`}>
-          <div className={`${mutedText}`}>Drawn</div>
-          <div className={`font-black ${textColor}`}>P3D-AI</div>
-        </div>
-        <div className="pl-1">
-          <div className={`${mutedText}`}>Scale</div>
-          <div className={`font-black ${textColor}`}>1:50</div>
-        </div>
-      </div>
-
-      <div className={`mt-3 pt-2 border-t-2 text-center font-black py-1 ${accentBorder} ${isBlueprintTheme ? 'text-[#00b5ad] bg-[#00b5ad]/5' : (darkMode ? 'text-blue-500 bg-blue-950/20' : 'text-slate-700 bg-slate-50')}`}>
-        BLUEPRINT • NOT FOR DESIGN ONLY
-      </div>
-    </div>
-  );
-}
 
 
 const Scene3D = forwardRef(function Scene3D({
-  components, selectedIds, onSelectComponent, onBatchSelect, placingType, placingTemplate, onPlaceComponent, onCancelPlacement, onUpdateComponent, onUpdateMultiple, transformMode, designName, darkMode
+  components, selectedIds, onSelectComponent, onBatchSelect, placingType, placingTemplate, onPlaceComponent, onCancelPlacement, onUpdateComponent, onUpdateMultiple, transformMode, designName, darkMode, isLocked, suppressLabels = false
 }, ref) {
   const [viewLayout, setViewLayout] = useState(['iso', 'front', 'top']);
   const resetHandlers = useRef({});
@@ -857,7 +909,6 @@ const Scene3D = forwardRef(function Scene3D({
           </div>
         )}
 
-        {index === 0 && designName && <TitleBlock designName={designName} darkMode={darkMode} />}
         <SceneErrorBoundary key={viewId}>
           <ViewportContent
             viewId={viewId}
@@ -875,6 +926,8 @@ const Scene3D = forwardRef(function Scene3D({
             isCapture={false}
             setResetHandler={(handler) => { resetHandlers.current[viewId] = handler; }}
             placingTemplate={placingTemplate}
+            isLocked={isLocked}
+            suppressLabels={suppressLabels}
           />
         </SceneErrorBoundary>
         <div className="absolute inset-0 bg-blue-500/0 group-hover/viewport:bg-blue-500/[0.02] transition-colors pointer-events-none" />
@@ -928,6 +981,7 @@ const Scene3D = forwardRef(function Scene3D({
                 darkMode={false} // Blueprints are always light themed
                 isCapture={true}
                 setResetHandler={(handler) => { resetHandlers.current[viewId] = handler; }}
+                isLocked={false} // Hidden capture views are never locked
               />
             </SceneErrorBoundary>
           </div>
@@ -956,7 +1010,12 @@ const ViewportContent = ({
   isCapture = false,
   setResetHandler,
   placingTemplate,
+  isLocked,
+  suppressLabels = false,
 }) => {
+  const isDragging = useRef(false);
+  const isTransforming = useRef(false);
+
   const getTagInternal = (comp) => {
     const type = comp.component_type || 'straight';
     const sameTypeComps = components.filter(c => c.component_type === type);
@@ -969,8 +1028,10 @@ const ViewportContent = ({
       gl={{ antialias: true, preserveDrawingBuffer: true, alpha: true }}
       shadows
       onPointerMissed={(e) => {
-        // Only clear if not clicking UI and not dragging a box
-        if (e.button === 0) onSelectComponent(null);
+        // Only clear if it was a clean click (not a drag) and not transforming
+        if (e.button === 0 && !isDragging.current && !isTransforming.current) {
+          onSelectComponent(null);
+        }
       }}
     >
       {config.camera === 'ortho' ? (
@@ -983,8 +1044,9 @@ const ViewportContent = ({
         setResetHandler={setResetHandler}
         selectedIds={selectedIds}
         components={components}
+        isLocked={isLocked}
       />
-      {viewId === 'iso' && !isCapture && (
+      {!isCapture && (
         <GizmoHelper alignment="bottom-left" margin={[80, 80]}>
           <GizmoViewport labelColor="white" axisColors={['#f43f5e', '#10b981', '#3b82f6']} />
         </GizmoHelper>
@@ -992,7 +1054,12 @@ const ViewportContent = ({
       <SharedSceneElements
         components={components.map(c => ({ ...c, _tag: getTagInternal(c) }))}
         selectedIds={selectedIds}
-        onSelectComponent={onSelectComponent}
+        onSelectComponent={(id, e) => {
+          // Guard: stop selection if we just finished transforming or are dragging
+          if (!isTransforming.current && !isDragging.current) {
+            onSelectComponent(id, e);
+          }
+        }}
         onBatchSelect={onBatchSelect}
         onUpdateComponent={onUpdateComponent}
         onUpdateMultiple={onUpdateMultiple}
@@ -1003,6 +1070,9 @@ const ViewportContent = ({
         darkMode={darkMode}
         isCapture={isCapture}
         placingTemplate={placingTemplate}
+        isDragging={isDragging}
+        isTransforming={isTransforming}
+        suppressLabels={suppressLabels}
       />
     </Canvas>
   );

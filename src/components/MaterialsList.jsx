@@ -5,6 +5,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { calculateComponentCost, calculateComponentWeight, calculateComponentMetrics, formatIndianNumber } from '../utils/pricing';
 import { getComponentTag } from '../utils/tagging';
+import * as XLSX from 'xlsx';
 
 export default function MaterialsList({ designName = 'Untitled Project', components, onClose }) {
     const contentRef = useRef(null);
@@ -59,11 +60,12 @@ export default function MaterialsList({ designName = 'Untitled Project', compone
         .map((c, idx) => {
             const sameTypePrev = components.slice(0, idx).filter(comp => comp.component_type === c.component_type).length;
             const tag = getComponentTag(c.component_type, sameTypePrev);
+            const metrics = calculateComponentMetrics(c);
             return {
                 tag,
-                material: (c.properties?.material || 'steel').toUpperCase(),
-                length: c.properties?.length || 2,
-                od: c.properties?.od || 0.3
+                material: metrics.material.toUpperCase(),
+                length: metrics.length,
+                od: metrics.od
             };
         });
 
@@ -146,6 +148,39 @@ export default function MaterialsList({ designName = 'Untitled Project', compone
         } catch (err) {
             console.error('PDF export failed:', err);
             alert('PDF export failed. Please try again.');
+        }
+    };
+    const handleDownloadExcel = () => {
+        try {
+            const bomData = materials.map(item => ({
+                'Tag': item.tags.length > 1 ? `${item.tags[0]}...${item.tags[item.tags.length - 1]}` : item.tags[0],
+                'Component': item.type.replace('-', ' ').toUpperCase(),
+                'Material': item.metrics.material,
+                'OD (m)': item.metrics.od.toFixed(3),
+                'Thick (m)': item.metrics.thick.toFixed(4),
+                'Length (m)': item.metrics.length.toFixed(2),
+                'Weight (kg)': item.metrics.weight.toFixed(2),
+                'Volume (m3)': item.metrics.volume.toFixed(5),
+                'Quantity': item.quantity,
+                'Base Price (INR)': item.baseCost.toFixed(2),
+                'GST 18% (INR)': item.gst.toFixed(2),
+                'Total Price (INR)': item.totalCost.toFixed(2)
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(bomData);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, 'Bill of Materials');
+
+            // Set column widths
+            const colWidths = Object.keys(bomData[0]).map(key => ({
+                wch: Math.max(key.length, ...bomData.map(r => r[key].toString().length)) + 2
+            }));
+            worksheet['!cols'] = colWidths;
+
+            XLSX.writeFile(workbook, `${safeName}_bom.xlsx`);
+        } catch (err) {
+            console.error('Excel export failed:', err);
+            alert('Excel export failed. Please try again.');
         }
     };
 
@@ -276,11 +311,18 @@ export default function MaterialsList({ designName = 'Untitled Project', compone
                         Cancel
                     </button>
                     <button
+                        onClick={handleDownloadExcel}
+                        className="flex items-center gap-2 px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl transition-all font-black text-sm uppercase tracking-tight shadow-md shadow-green-900/10 active:scale-95"
+                    >
+                        <Download size={18} />
+                        Excel
+                    </button>
+                    <button
                         onClick={handleDownloadPDF}
                         className="flex items-center gap-2 px-6 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl transition-all font-black text-sm uppercase tracking-tight shadow-lg shadow-blue-900/10 active:scale-95"
                     >
                         <FileText size={18} />
-                        Download PDF
+                        PDF
                     </button>
                 </div>
             </div>

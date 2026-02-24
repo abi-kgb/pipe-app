@@ -46,8 +46,8 @@ export const COMPONENT_DEFINITIONS = {
         defaultOD: 0.30,
         defaultWT: 0.01,
         sockets: [
-            { position: new THREE.Vector3(0.5, -0.2, 0), direction: new THREE.Vector3(1, -1, 0).normalize() },
-            { position: new THREE.Vector3(0, 1, 0), direction: new THREE.Vector3(0, 1, 0) },
+            { position: new THREE.Vector3(0, 0.7, 0), direction: new THREE.Vector3(0, 1, 0) },
+            { position: new THREE.Vector3(0.495, 0.495, 0), direction: new THREE.Vector3(0.707, 0.707, 0) },
         ],
     },
     vertical: {
@@ -68,9 +68,11 @@ export const COMPONENT_DEFINITIONS = {
         defaultOD: 0.30,
         defaultWT: 0.01,
         sockets: [
-            { position: new THREE.Vector3(1, 0, 0), direction: new THREE.Vector3(1, 0, 0) },
-            { position: new THREE.Vector3(-1, 0, 0), direction: new THREE.Vector3(-1, 0, 0) },
-            { position: new THREE.Vector3(0, 1, 0), direction: new THREE.Vector3(0, 1, 0) },
+            // Main body along Y axis: top cap at +0.75, bottom cap at -0.75
+            { position: new THREE.Vector3(0, 0.75, 0), direction: new THREE.Vector3(0, 1, 0) },
+            { position: new THREE.Vector3(0, -0.75, 0), direction: new THREE.Vector3(0, -1, 0) },
+            // Branch along X axis: opens at +0.75 on X
+            { position: new THREE.Vector3(0.75, 0, 0), direction: new THREE.Vector3(1, 0, 0) },
         ],
     },
     reducer: {
@@ -87,7 +89,7 @@ export const COMPONENT_DEFINITIONS = {
     flange: {
         type: 'flange',
         weightPerPiece: 2.5,
-        defaultMaterial: 'steel',
+        defaultMaterial: 'pvc',
         defaultOD: 0.50,
         defaultWT: 0.01,
         sockets: [
@@ -181,7 +183,7 @@ export const COMPONENT_DEFINITIONS = {
     cylinder: {
         type: 'cylinder',
         weightFactor: 0.15, // Solider than pipe
-        defaultMaterial: 'steel',
+        defaultMaterial: 'pvc',
         defaultOD: 1.0,
         sockets: [
             { position: new THREE.Vector3(0, 1, 0), direction: new THREE.Vector3(0, 1, 0) },
@@ -191,7 +193,7 @@ export const COMPONENT_DEFINITIONS = {
     cube: {
         type: 'cube',
         weightFactor: 0.2,
-        defaultMaterial: 'steel',
+        defaultMaterial: 'pvc',
         defaultOD: 1.0,
         sockets: [
             { position: new THREE.Vector3(1, 0, 0), direction: new THREE.Vector3(1, 0, 0) },
@@ -205,7 +207,7 @@ export const COMPONENT_DEFINITIONS = {
     cone: {
         type: 'cone',
         weightFactor: 0.1,
-        defaultMaterial: 'steel',
+        defaultMaterial: 'pvc',
         defaultOD: 1.0,
         sockets: [
             { position: new THREE.Vector3(0, 1, 0), direction: new THREE.Vector3(0, 1, 0) }, // Tip
@@ -213,3 +215,11 @@ export const COMPONENT_DEFINITIONS = {
         ],
     },
 };
+
+// Standardized constants for realistic fitting geometry
+export const FITTING_CONSTANTS = {
+    ELBOW_RADIUS: 1.0,  // Standardized bend radius
+    PIPE_THICKNESS: 0.02,
+    T_LENGTH: 1.5,
+};
+

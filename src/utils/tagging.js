@@ -16,49 +16,49 @@ export const getComponentTag = (type, index) => {
     switch (type) {
         case 'straight':
         case 'vertical':
-            prefix = 'S';
+            prefix = 's';
             break;
         case 'elbow':
-            prefix = 'E90';
+            prefix = 'e90';
             break;
         case 'elbow-45':
-            prefix = 'E45';
+            prefix = 'e45';
             break;
         case 't-joint':
-            prefix = 'T';
+            prefix = 't';
             break;
         case 'valve':
-            prefix = 'V';
+            prefix = 'v';
             break;
         case 'flange':
-            prefix = 'F';
+            prefix = 'f';
             break;
         case 'filter':
-            prefix = 'FL';
+            prefix = 'fl';
             break;
         case 'tank':
-            prefix = 'TK';
+            prefix = 'tk';
             break;
         case 'reducer':
-            prefix = 'R';
+            prefix = 'r';
             break;
         case 'cap':
-            prefix = 'CP';
+            prefix = 'cp';
             break;
         case 'union':
-            prefix = 'U';
+            prefix = 'u';
             break;
         case 'cross':
-            prefix = 'X';
+            prefix = 'x';
             break;
         case 'coupling':
-            prefix = 'C';
+            prefix = 'c';
             break;
         case 'plug':
-            prefix = 'P';
+            prefix = 'p';
             break;
         default:
-            prefix = type.substring(0, 2).toUpperCase();
+            prefix = type.substring(0, 2).toLowerCase();
     }
 
     return `${prefix}${index + 1}`;
