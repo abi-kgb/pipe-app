@@ -11,6 +11,7 @@ import autoTable from 'jspdf-autotable';
 import { getComponentTag } from './utils/tagging';
 import * as XLSX from 'xlsx';
 import { calculateComponentMetrics, calculateComponentCost } from './utils/pricing';
+import AuthPage from './components/AuthPage';
 
 function App() {
   const [components, setComponents] = useState([]);
@@ -23,6 +24,13 @@ function App() {
   const [transformMode, setTransformMode] = useState('translate');
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
+  const [lastSaved, setLastSaved] = useState(Date.now());
+  const [isSaving, setIsSaving] = useState(false);
+  const [blueprintMode, setBlueprintMode] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [performanceMode, setPerformanceMode] = useState(() => {
+    return localStorage.getItem('pipe3d_perf_mode') === 'true' || window.innerWidth < 800;
+  });
   const sceneRef = useRef(null); // ref to Scene3D for export control
   const lastPlacementTime = useRef(0);
   const [darkMode, setDarkMode] = useState(() => {
@@ -30,6 +38,7 @@ function App() {
   });
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
   const [showLibrary, setShowLibrary] = useState(window.innerWidth >= 1024);
+  const [user, setUser] = useState(null);
 
   // Track window resize for responsiveness
   useEffect(() => {
@@ -80,6 +89,12 @@ function App() {
     });
   }, [historyIndex]);
 
+  // Re-sync components and save to history in one flow to avoid double re-renders
+  const updateComponentsWithHistory = useCallback((newComps) => {
+    setComponents(newComps);
+    saveToHistory(newComps);
+  }, [saveToHistory]);
+
   const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
       const prevIdx = historyIndex - 1;
@@ -97,6 +112,44 @@ function App() {
       setSelectedIds([]);
     }
   }, [historyIndex, historyStack]);
+
+  const handleSaveToHistory = useCallback(() => {
+    if (components.length === 0) return;
+
+    const newEntry = {
+      id: `hist_${Date.now()}`,
+      name: designName,
+      components: JSON.parse(JSON.stringify(components)), // Deep clone
+      timestamp: Date.now()
+    };
+
+    setHistory(prev => [newEntry, ...prev].slice(0, 100)); // Keep last 100
+  }, [components, designName]);
+
+  const handleLoadHistory = useCallback((entry) => {
+    if (components.length > 0) {
+      const confirm = window.confirm('Save current design to history before loading?');
+      if (confirm) handleSaveToHistory();
+    }
+    setComponents(entry.components);
+    setDesignName(entry.name);
+    setSelectedIds([]);
+  }, [components, handleSaveToHistory]);
+
+  const handleDeleteHistory = useCallback((id) => {
+    setHistory(prev => prev.filter(h => h.id !== id));
+  }, []);
+
+  const handleNewDesign = () => {
+    if (components.length > 0) {
+      // Automatically archive to history
+      handleSaveToHistory();
+    }
+
+    setComponents([]);
+    setSelectedIds([]);
+    setDesignName('Untitled Design');
+  };
   const handleCancelPlacement = useCallback(() => {
     setPlacingType(null);
     setPlacingTemplate(null);
@@ -113,6 +166,7 @@ function App() {
     const isMulti = multiSelectMode || (e && (e.shiftKey || e.ctrlKey || e.metaKey));
 
     // Smart Assembly Selection
+    // Assembly Selection
     const targetComp = components.find(c => c.id === id);
     if (!targetComp) {
       setSelectedIds([]);
@@ -159,6 +213,10 @@ function App() {
     }
   }, [darkMode]);
 
+  useEffect(() => {
+    localStorage.setItem('pipe3d_perf_mode', performanceMode);
+  }, [performanceMode]);
+
   // Initial load from autosave
   useEffect(() => {
     try {
@@ -175,12 +233,34 @@ function App() {
 
   // Autosave when data changes
   useEffect(() => {
+    setIsSaving(true);
     const data = {
       name: designName,
       components: components,
       timestamp: Date.now()
     };
     localStorage.setItem('pipe3d_autosave', JSON.stringify(data));
+
+    const timer = setTimeout(() => {
+      setIsSaving(false);
+      setLastSaved(Date.now());
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [components, designName]);
+
+  // Handle browser closure/refresh
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const data = {
+        name: designName,
+        components: components,
+        timestamp: Date.now()
+      };
+      localStorage.setItem('pipe3d_autosave', JSON.stringify(data));
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [components, designName]);
 
   // Sync history to localStorage
@@ -241,7 +321,8 @@ function App() {
           const finalRot = new THREE.Euler().setFromQuaternion(partFinalQuat);
 
           return {
-            ...JSON.parse(JSON.stringify(p)),
+            ...p,
+            properties: { ...p.properties }, // Shallow clone properties
             id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${Math.random()}`,
             assemblyId,
             position_x: position[0] + offsetVec.x,
@@ -253,15 +334,9 @@ function App() {
           };
         });
         const finalComps = [...prev, ...newComps];
+        saveToHistory(finalComps);
         return finalComps;
       });
-      // Corrected: move outside setter
-      setTimeout(() => {
-        setComponents(prev => {
-          saveToHistory(prev);
-          return prev;
-        });
-      }, 0);
       setPlacingType(null);
       setPlacingTemplate(null);
       setSelectedIds([]);
@@ -289,15 +364,9 @@ function App() {
 
     setComponents(prev => {
       const next = [...prev, newComponent];
+      saveToHistory(next);
       return next;
     });
-    // Move outside setter
-    setTimeout(() => {
-      setComponents(prev => {
-        saveToHistory(prev);
-        return prev;
-      });
-    }, 0);
     // Note: We clear placingType here to return to selection mode after placement.
     setPlacingType(null);
     setPlacingTemplate(null);
@@ -308,42 +377,56 @@ function App() {
   const handleUpdateComponent = useCallback((updatedComponent) => {
     setComponents(prev => {
       const next = prev.map(comp => (comp.id === updatedComponent.id ? updatedComponent : comp));
+      saveToHistory(next);
       return next;
     });
-    setTimeout(() => {
-      setComponents(prev => {
-        saveToHistory(prev);
-        return prev;
-      });
-    }, 0);
   }, [saveToHistory]);
 
   const handleUpdateComponents = useCallback((updatedComponents) => {
     setComponents(prev => {
       const updates = new Map(updatedComponents.map(c => [c.id, c]));
       const next = prev.map(comp => updates.has(comp.id) ? updates.get(comp.id) : comp);
+      saveToHistory(next);
       return next;
     });
-    setTimeout(() => {
-      setComponents(prev => {
-        saveToHistory(prev);
-        return prev;
-      });
-    }, 0);
   }, [saveToHistory]);
 
   const handleDeleteComponents = useCallback((ids) => {
     setComponents(prev => {
       const next = prev.filter(comp => !ids.includes(comp.id));
+      saveToHistory(next);
       return next;
     });
     setSelectedIds(prev => prev.filter(id => !ids.includes(id)));
-    setTimeout(() => {
-      setComponents(prev => {
-        saveToHistory(prev);
-        return prev;
+  }, [saveToHistory]);
+
+  const handleUngroupComponents = useCallback((ids) => {
+    if (ids.length === 0) return;
+    setComponents(prev => {
+      const next = prev.map(comp => {
+        if (ids.includes(comp.id) && comp.assemblyId) {
+          return { ...comp, assemblyId: null };
+        }
+        return comp;
       });
-    }, 0);
+      saveToHistory(next);
+      return next;
+    });
+  }, [saveToHistory]);
+
+  const handleGroupComponents = useCallback((ids) => {
+    if (ids.length < 2) return;
+    const assemblyId = `ass_${Date.now()}`;
+    setComponents(prev => {
+      const next = prev.map(comp => {
+        if (ids.includes(comp.id)) {
+          return { ...comp, assemblyId };
+        }
+        return comp;
+      });
+      saveToHistory(next);
+      return next;
+    });
   }, [saveToHistory]);
 
   const handleDuplicateComponents = useCallback((ids) => {
@@ -352,7 +435,8 @@ function App() {
     setComponents(prev => {
       const selectedOnes = prev.filter(c => ids.includes(c.id));
       const newClones = selectedOnes.map(original => ({
-        ...JSON.parse(JSON.stringify(original)), // Deep clone
+        ...original,
+        properties: { ...original.properties }, // Shallow clone properties
         id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         // Offset the clone slightly so it doesn't overlap perfectly
         position_x: original.position_x + 0.5,
@@ -361,16 +445,11 @@ function App() {
       }));
 
       const newComponents = [...prev, ...newClones];
+      saveToHistory(newComponents);
       // Select the new clones automatically
       setTimeout(() => setSelectedIds(newClones.map(c => c.id)), 0);
       return newComponents;
     });
-    setTimeout(() => {
-      setComponents(prev => {
-        saveToHistory(prev);
-        return prev;
-      });
-    }, 0);
   }, [saveToHistory]);
 
   const handleSaveToLibrary = useCallback((ids) => {
@@ -438,12 +517,11 @@ function App() {
       };
     } else {
       // SINGLE PART CAPTURE
-      const comp = selectedOnes[0];
       newPart = {
         id: `user_${Date.now()}`,
         label: name,
-        type: comp.component_type,
-        properties: JSON.parse(JSON.stringify(comp.properties || {})),
+        type: selectedOnes[0].component_type,
+        properties: { ...selectedOnes[0].properties },
         timestamp: Date.now()
       };
     }
@@ -492,6 +570,18 @@ function App() {
         handleRedo();
       }
 
+      // 5b. U to Ungroup
+      if (e.key.toLowerCase() === 'u' && selectedIds.length > 0) {
+        if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+        handleUngroupComponents(selectedIds);
+      }
+
+      // 5c. G to Group
+      if (e.key.toLowerCase() === 'g' && selectedIds.length > 1) {
+        if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+        handleGroupComponents(selectedIds);
+      }
+
       // 6. Transform Mode (T for Translate, R for Rotate)
       if (e.key.toLowerCase() === 't') {
         setTransformMode('translate');
@@ -519,14 +609,9 @@ function App() {
         };
         setComponents(prev => {
           const next = [...prev, newComponent];
+          saveToHistory(next);
           return next;
         });
-        setTimeout(() => {
-          setComponents(prev => {
-            saveToHistory(prev);
-            return prev;
-          });
-        }, 0);
         setSelectedIds([newComponent.id]);
         console.log('Pasted:', newComponent);
       }
@@ -573,7 +658,8 @@ function App() {
 
     const safeName = designName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
     XLSX.writeFile(workbook, `${safeName}_bom.xlsx`);
-  }, [components, designName]);
+    handleSaveToHistory();
+  }, [components, designName, handleSaveToHistory]);
 
   const handleSaveDesign = async () => {
     try {
@@ -582,17 +668,9 @@ function App() {
         return;
       }
 
-      // ── Step 1: capture all viewports ──────────────────────────────────
-      let images = {};
-      if (sceneRef.current?.captureViews) {
-        images = await sceneRef.current.captureViews();
-      }
-
-      console.log('Pipe3D: Received images from captureViews:', Object.keys(images));
-
-      if (Object.keys(images).length === 0) {
-        console.error('Pipe3D: No images were captured. Blueprint drawing might be blank.');
-      }
+      setIsCapturing(true);
+      // Give a brief moment for the hidden viewports to initialize (increased to 800ms for stability)
+      await new Promise(r => setTimeout(r, 800));
 
       const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
       const W = pdf.internal.pageSize.getWidth();   // 297 mm
@@ -600,50 +678,45 @@ function App() {
       const dateStr = new Date().toLocaleDateString('en-GB');
 
       const PAGES = [
-        { key: 'iso', label: '3D Isometric View', isBlue: true },
-        { key: 'front', label: 'Front Elevation', isBlue: true },
-        { key: 'top', label: 'Top Plan View', isBlue: true },
-        { key: 'right', label: 'Right Elevation', isBlue: true },
-        { key: 'left', label: 'Left Elevation', isBlue: true },
-        { key: 'back', label: 'Back Elevation', isBlue: true },
-        { key: 'bottom', label: 'Bottom View', isBlue: true },
+        { key: 'iso', label: '3D Isometric View' },
+        { key: 'front', label: 'Front Elevation' },
+        { key: 'top', label: 'Top Plan View' },
+        { key: 'right', label: 'Right Elevation' },
+        { key: 'left', label: 'Left Elevation' },
+        { key: 'back', label: 'Back Elevation' },
+        { key: 'bottom', label: 'Bottom View' },
       ];
 
-      const drawPage = (label, imgData, isBlue = false) => {
-        // Classic Blueprint Background (Deep Blue) or White
-        const pageBg = isBlue ? [30, 64, 175] : [255, 255, 255]; // #1e40af
-        pdf.setFillColor(...pageBg);
+      const drawPage = (label, imgData) => {
+        // High-end Line Art Aesthetic (Pure White background with Teal accents)
+        const pureWhite = [255, 255, 255];
+        const tealAccent = [8, 145, 178]; // #0891b2
+
+        pdf.setFillColor(...pureWhite);
         pdf.rect(0, 0, W, H, 'F');
 
         // ── Header bar ──────────────────────────────────────────────────────
-        const headerBg = isBlue ? [255, 255, 255] : [30, 58, 138];
-        const headerText = isBlue ? [30, 64, 175] : [255, 255, 255];
-
-        pdf.setFillColor(...headerBg);
+        pdf.setFillColor(...pureWhite);
         pdf.rect(5, 5, W - 10, 12, 'F');
-        pdf.setTextColor(...headerText);
+        pdf.setTextColor(...tealAccent);
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(10);
         pdf.text('PIPE3D PRO  —  TECHNICAL BLUEPRINT', W / 2, 12.5, { align: 'center' });
 
         // ── Footer bar ──────────────────────────────────────────────────────
-        const footerBg = isBlue ? [30, 58, 175] : [241, 245, 249];
-        const footerText = isBlue ? [255, 255, 255] : [30, 41, 59];
-        const footerBorder = isBlue ? [255, 255, 255] : [30, 58, 138];
-
-        pdf.setFillColor(...footerBg);
+        pdf.setFillColor(...pureWhite);
         pdf.rect(5, H - 13, W - 10, 8, 'F');
-        pdf.setDrawColor(...footerBorder); pdf.setLineWidth(0.4);
+        pdf.setDrawColor(...tealAccent); pdf.setLineWidth(0.4);
         pdf.line(5, H - 13, W - 5, H - 13);
 
-        pdf.setTextColor(...footerText); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(7.5);
+        pdf.setTextColor(...tealAccent); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(7.5);
         pdf.text(`PROJECT: ${designName.toUpperCase()}`, 10, H - 7.5);
         pdf.setFont('helvetica', 'normal');
         pdf.text(label.toUpperCase(), W / 2, H - 7.5, { align: 'center' });
         pdf.text(`DATE: ${dateStr}  |  REV: 01-A`, W - 10, H - 7.5, { align: 'right' });
 
         // ── Outer border ────────────────────────────────────────────────────
-        pdf.setDrawColor(...footerBorder); pdf.setLineWidth(1.2);
+        pdf.setDrawColor(...tealAccent); pdf.setLineWidth(1.2);
         pdf.rect(5, 5, W - 10, H - 10);
 
         // ── View image area ─────────────────────────────────────────────────
@@ -654,35 +727,47 @@ function App() {
           pdf.addImage(imgData, 'PNG', imgX, imgY, imgW, imgH);
         } else {
           // Fallback shaded box
-          pdf.setFillColor(isBlue ? 40 : 245, isBlue ? 70 : 247, isBlue ? 180 : 250);
+          pdf.setFillColor(245, 247, 250);
           pdf.rect(imgX, imgY, imgW, imgH, 'F');
-          pdf.setTextColor(isBlue ? 200 : 160, isBlue ? 220 : 170, isBlue ? 255 : 190);
+          pdf.setTextColor(160, 170, 190);
           pdf.setFont('helvetica', 'italic'); pdf.setFontSize(9);
           pdf.text(`${label} — view not available`, W / 2, H / 2, { align: 'center' });
         }
 
         // Thin frame around view
-        pdf.setDrawColor(...footerBorder); pdf.setLineWidth(0.5);
+        pdf.setDrawColor(...tealAccent); pdf.setLineWidth(0.5);
         pdf.rect(imgX, imgY, imgW, imgH);
       };
 
-      // ── Render each page ─────────────────────────────────────────────────
-      PAGES.forEach(({ key, label, isBlue }, i) => {
+      // ── Step 1: capture all viewports (Blueprint Style) ────────────────
+      let blueprintImages = {};
+      if (sceneRef.current?.captureViews) {
+        console.log('Pipe3D: Capturing Blueprint views...');
+        blueprintImages = await sceneRef.current.captureViews('blueprint');
+      }
+
+      // First Set: Blueprint Drawings
+      PAGES.forEach(({ key, label }, i) => {
         if (i > 0) pdf.addPage('landscape');
-        drawPage(label, images[key], isBlue);
+        drawPage(label, blueprintImages[key]);
       });
 
-      // ── Step 4: Add Parts Schedule Table Page (BLUEPRINT THEME) ─────────
+      // ── Step 4: Add Parts Schedule Table Page (TEAL/WHITE THEME) ────────
       pdf.addPage('landscape');
 
-      // Blue background for schedule page
-      pdf.setFillColor(30, 64, 175);
+      // White background for schedule page
+      pdf.setFillColor(255, 255, 255);
       pdf.rect(0, 0, W, H, 'F');
 
+      // Border for Schedule Page
+      pdf.setDrawColor(8, 145, 178); // Teal
+      pdf.setLineWidth(1.2);
+      pdf.rect(5, 5, W - 10, H - 10);
+
       // Header for Schedule Page
-      pdf.setFillColor(255, 255, 255);
+      pdf.setFillColor(8, 145, 178);
       pdf.rect(5, 5, W - 10, 12, 'F');
-      pdf.setTextColor(30, 64, 175);
+      pdf.setTextColor(255, 255, 255);
       pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(10);
       pdf.text('PARTS SCHEDULE — FABRICATION LIST', W / 2, 12.5, { align: 'center' });
@@ -713,91 +798,52 @@ function App() {
         body: tableData,
         theme: 'plain',
         headStyles: {
-          fillColor: [255, 255, 255],
-          textColor: [30, 64, 175],
+          fillColor: [8, 145, 178], // Teal
+          textColor: [255, 255, 255],
           fontSize: 9,
           fontStyle: 'bold',
           lineWidth: 0.1,
-          lineColor: [255, 255, 255]
+          lineColor: [8, 145, 178]
         },
         bodyStyles: {
           fontSize: 8,
-          textColor: [255, 255, 255],
-          fillColor: [30, 64, 175],
+          textColor: [8, 145, 178], // Teal
+          fillColor: [255, 255, 255],
           lineWidth: 0.1,
-          lineColor: [255, 255, 255, 0.2]
+          lineColor: [8, 145, 178]
         },
         margin: { left: 8, right: 8 },
         styles: { font: 'helvetica', cellPadding: 3 }
       });
 
       // Footer for Schedule Page
-      pdf.setFillColor(30, 64, 175);
+      pdf.setFillColor(255, 255, 255);
       pdf.rect(5, H - 13, W - 10, 8, 'F');
-      pdf.setDrawColor(255, 255, 255); pdf.setLineWidth(0.4);
+      pdf.setDrawColor(8, 145, 178); pdf.setLineWidth(0.4);
       pdf.line(5, H - 13, W - 5, H - 13);
-      pdf.setTextColor(255, 255, 255); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(7.5);
+      pdf.setTextColor(8, 145, 178); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(7.5);
       pdf.text(`PROJECT: ${designName.toUpperCase()}`, 10, H - 7.5);
       pdf.text(`TOTAL COMPONENTS: ${components.length}`, W / 2, H - 7.5, { align: 'center' });
       pdf.text(`DATE: ${dateStr}  |  REV: 01-A`, W - 10, H - 7.5, { align: 'right' });
 
-      pdf.setDrawColor(255, 255, 255); pdf.setLineWidth(1.2);
+      pdf.setDrawColor(8, 145, 178); pdf.setLineWidth(1.2);
       pdf.rect(5, 5, W - 10, H - 10);
 
       pdf.save(`${designName.replace(/ /g, '_')}_Blueprint.pdf`);
       handleSaveToHistory();
+      setIsCapturing(false);
 
     } catch (error) {
       console.error('Blueprint export error:', error);
+      setIsCapturing(false);
       alert('Export failed: ' + error.message);
     }
   };
 
 
-
-  const handleSaveToHistory = useCallback(() => {
-    if (components.length === 0) return;
-
-    const newEntry = {
-      id: `hist_${Date.now()}`,
-      name: designName,
-      components: JSON.parse(JSON.stringify(components)), // Deep clone
-      timestamp: Date.now()
-    };
-
-    setHistory(prev => [newEntry, ...prev].slice(0, 20)); // Keep last 20
-  }, [components, designName]);
-
-  const handleLoadHistory = useCallback((entry) => {
-    if (components.length > 0) {
-      const confirm = window.confirm('Save current design to history before loading?');
-      if (confirm) handleSaveToHistory();
-    }
-    setComponents(entry.components);
-    setDesignName(entry.name);
-    setSelectedIds([]);
-  }, [components, handleSaveToHistory]);
-
-  const handleDeleteHistory = useCallback((id) => {
-    setHistory(prev => prev.filter(h => h.id !== id));
-  }, []);
-
-  const handleNewDesign = () => {
-    if (components.length > 0) {
-      const confirm = window.confirm('Archive current design to history and start new?');
-      if (confirm) {
-        handleSaveToHistory();
-      } else {
-        const clear = window.confirm('Clear without archiving?');
-        if (!clear) return;
-      }
-    }
-
-    setComponents([]);
-    setSelectedIds([]);
-    setDesignName('Untitled Design');
-  };
-
+  if (!user) {
+    return <AuthPage onLogin={setUser} />;
+  }
 
   return (
     <div className={`h-screen flex flex-col transition-colors duration-300 ${darkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-[#f0f9ff] text-slate-900'} selection:bg-blue-200`}>
@@ -812,6 +858,8 @@ function App() {
         onShowMaterials={() => setShowMaterials(true)}
         darkMode={darkMode}
         onToggleTheme={() => setDarkMode(!darkMode)}
+        blueprintMode={blueprintMode}
+        onToggleBlueprint={() => setBlueprintMode(!blueprintMode)}
         isMobile={isMobile}
         onToggleLibrary={() => setShowLibrary(!showLibrary)}
         showLibrary={showLibrary}
@@ -821,6 +869,11 @@ function App() {
         onRedo={handleRedo}
         isLocked={isLocked}
         onToggleLock={() => setIsLocked(!isLocked)}
+        isSaving={isSaving}
+        user={user}
+        onLogout={() => setUser(null)}
+        performanceMode={performanceMode}
+        onTogglePerformance={() => setPerformanceMode(!performanceMode)}
       />
 
       {showMaterials && (
@@ -831,32 +884,37 @@ function App() {
         />
       )}
 
-      <div className="flex-1 overflow-hidden relative">
-        {isMobile ? (
-          <div className="w-full h-full flex flex-col relative">
-            {/* Main Content Area */}
-            <div className="flex-1 relative">
-              <Scene3D
-                ref={sceneRef}
-                components={components}
-                selectedIds={selectedIds}
-                onSelectComponent={handleSelectComponent}
-                placingType={placingType}
-                placingTemplate={placingTemplate}
-                onPlaceComponent={(pos, rot) => {
-                  handlePlaceComponent(pos, rot);
-                  if (isMobile) setShowLibrary(false);
-                }}
-                onCancelPlacement={handleCancelPlacement}
-                onUpdateComponent={handleUpdateComponent}
-                onUpdateMultiple={handleUpdateComponents}
-                onBatchSelect={handleBatchSelect}
-                transformMode={transformMode}
-                onSetTransformMode={setTransformMode}
-                designName={designName}
-                darkMode={darkMode}
-                isLocked={isLocked}
-              />
+      <main className="flex-1 relative overflow-hidden bg-slate-50">
+        {blueprintMode && <div className="absolute inset-0 z-[1] paper-texture pointer-events-none" />}
+        <div className="absolute inset-0">
+          {isMobile ? (
+            <div className="w-full h-full flex flex-col relative">
+              <div className="flex-1 relative">
+                <Scene3D
+                  ref={sceneRef}
+                  components={components}
+                  selectedIds={selectedIds}
+                  onSelectComponent={handleSelectComponent}
+                  placingType={placingType}
+                  placingTemplate={placingTemplate}
+                  onPlaceComponent={(pos, rot) => {
+                    handlePlaceComponent(pos, rot);
+                    if (isMobile) setShowLibrary(false);
+                  }}
+                  onCancelPlacement={handleCancelPlacement}
+                  onUpdateComponent={handleUpdateComponent}
+                  onUpdateMultiple={handleUpdateComponents}
+                  onBatchSelect={handleBatchSelect}
+                  transformMode={transformMode}
+                  onSetTransformMode={setTransformMode}
+                  designName={designName}
+                  darkMode={darkMode}
+                  blueprintMode={blueprintMode}
+                  isLocked={isLocked}
+                  isCapturing={isCapturing}
+                  performanceMode={performanceMode}
+                />
+              </div>
 
               {/* Mobile Library Overlay */}
               {showLibrary && (
@@ -876,6 +934,8 @@ function App() {
                       selectedIds={selectedIds}
                       setSelectedIds={setSelectedIds}
                       onDelete={() => selectedIds.length > 0 && handleDeleteComponents(selectedIds)}
+                      onUngroup={() => selectedIds.length > 0 && handleUngroupComponents(selectedIds)}
+                      onGroup={() => selectedIds.length > 1 && handleGroupComponents(selectedIds)}
                       onDuplicate={() => selectedIds.length > 0 && handleDuplicateComponents(selectedIds)}
                       onSaveToLibrary={() => selectedIds.length > 0 && handleSaveToLibrary(selectedIds)}
                       userParts={userParts}
@@ -890,6 +950,7 @@ function App() {
                       onSaveToHistory={handleSaveToHistory}
                       darkMode={darkMode}
                       placingType={placingType}
+                      placingTemplate={placingTemplate}
                     />
                   </div>
                 </div>
@@ -897,64 +958,70 @@ function App() {
 
 
             </div>
-          </div>
-        ) : (
-          <ResizablePane
-            padding="p-0"
-            initialSize={20}
-            minSize={10}
-            maxSize={40}
-            first={
-              <ComponentLibrary
-                components={components}
-                onUpdate={handleUpdateComponent}
-                onUpdateMultiple={handleUpdateComponents}
-                onAddComponent={handleAddComponent}
-                selectedIds={selectedIds}
-                setSelectedIds={setSelectedIds}
-                onSelectComponent={handleSelectComponent}
-                onDelete={() => selectedIds.length > 0 && handleDeleteComponents(selectedIds)}
-                onDuplicate={() => selectedIds.length > 0 && handleDuplicateComponents(selectedIds)}
-                onSaveToLibrary={() => selectedIds.length > 0 && handleSaveToLibrary(selectedIds)}
-                userParts={userParts}
-                onDeleteUserPart={handleDeleteUserPart}
-                transformMode={transformMode}
-                onSetTransformMode={setTransformMode}
-                multiSelectMode={multiSelectMode}
-                onSetMultiSelectMode={setMultiSelectMode}
-                history={history}
-                onLoadHistory={handleLoadHistory}
-                onDeleteHistory={handleDeleteHistory}
-                onSaveToHistory={handleSaveToHistory}
-                darkMode={darkMode}
-                placingType={placingType}
-              />
-            }
-            second={
-              <div className="w-full h-full">
-                <Scene3D
-                  ref={sceneRef}
+          ) : (
+            <ResizablePane
+              padding="p-0"
+              initialSize={20}
+              minSize={10}
+              maxSize={40}
+              first={
+                <ComponentLibrary
                   components={components}
-                  selectedIds={selectedIds}
-                  onSelectComponent={handleSelectComponent}
-                  placingType={placingType}
-                  placingTemplate={placingTemplate}
-                  onPlaceComponent={handlePlaceComponent}
-                  onCancelPlacement={handleCancelPlacement}
-                  onUpdateComponent={handleUpdateComponent}
-                  onBatchSelect={handleBatchSelect}
+                  onUpdate={handleUpdateComponent}
                   onUpdateMultiple={handleUpdateComponents}
+                  onAddComponent={handleAddComponent}
+                  selectedIds={selectedIds}
+                  setSelectedIds={setSelectedIds}
+                  onSelectComponent={handleSelectComponent}
+                  onDelete={() => selectedIds.length > 0 && handleDeleteComponents(selectedIds)}
+                  onUngroup={() => selectedIds.length > 0 && handleUngroupComponents(selectedIds)}
+                  onGroup={() => selectedIds.length > 1 && handleGroupComponents(selectedIds)}
+                  onDuplicate={() => selectedIds.length > 0 && handleDuplicateComponents(selectedIds)}
+                  onSaveToLibrary={() => selectedIds.length > 0 && handleSaveToLibrary(selectedIds)}
+                  userParts={userParts}
+                  onDeleteUserPart={handleDeleteUserPart}
                   transformMode={transformMode}
                   onSetTransformMode={setTransformMode}
-                  designName={designName}
+                  multiSelectMode={multiSelectMode}
+                  onSetMultiSelectMode={setMultiSelectMode}
+                  history={history}
+                  onLoadHistory={handleLoadHistory}
+                  onDeleteHistory={handleDeleteHistory}
+                  onSaveToHistory={handleSaveToHistory}
                   darkMode={darkMode}
-                  isLocked={isLocked}
+                  placingType={placingType}
+                  placingTemplate={placingTemplate}
                 />
-              </div>
-            }
-          />
-        )}
-      </div>
+              }
+              second={
+                <div className="w-full h-full">
+                  <Scene3D
+                    ref={sceneRef}
+                    components={components}
+                    selectedIds={selectedIds}
+                    onSelectComponent={handleSelectComponent}
+                    placingType={placingType}
+                    placingTemplate={placingTemplate}
+                    onPlaceComponent={handlePlaceComponent}
+                    onCancelPlacement={handleCancelPlacement}
+                    onUpdateComponent={handleUpdateComponent}
+                    onBatchSelect={handleBatchSelect}
+                    onUpdateMultiple={handleUpdateComponents}
+                    transformMode={transformMode}
+                    onSetTransformMode={setTransformMode}
+                    designName={designName}
+                    darkMode={darkMode}
+                    blueprintMode={blueprintMode}
+                    isLocked={isLocked}
+                    isCapturing={isCapturing}
+                    performanceMode={performanceMode}
+                  />
+                </div>
+              }
+            />
+          )}
+        </div>
+      </main>
     </div>
   );
 }

@@ -13,6 +13,8 @@ export const MATERIALS = {
     cpvc: { id: 'cpvc', name: 'CPVC', density: 1550, color: '#fde68a' },
     upvc: { id: 'upvc', name: 'UPVC', density: 1450, color: '#6ee7b7' },
     hdpe: { id: 'hdpe', name: 'HDPE (Black)', density: 950, color: '#1e293b' },
+    sq_steel: { id: 'sq_steel', name: 'Square Steel (SHS)', density: 7850, color: '#64748b' },
+    sq_aluminium: { id: 'sq_aluminium', name: 'Square Aluminium (SAS)', density: 2700, color: '#cbd5e1' },
 };
 
 export const COMPONENT_DEFINITIONS = {
@@ -26,6 +28,7 @@ export const COMPONENT_DEFINITIONS = {
         sockets: [
             { position: new THREE.Vector3(0, 1, 0), direction: new THREE.Vector3(0, 1, 0) },
             { position: new THREE.Vector3(0, -1, 0), direction: new THREE.Vector3(0, -1, 0) },
+            { position: new THREE.Vector3(0, 0, 0), direction: new THREE.Vector3(0, 1, 0) }, // Center Socket
         ],
     },
     elbow: {
@@ -59,6 +62,7 @@ export const COMPONENT_DEFINITIONS = {
         sockets: [
             { position: new THREE.Vector3(0, 1, 0), direction: new THREE.Vector3(0, 1, 0) },
             { position: new THREE.Vector3(0, -1, 0), direction: new THREE.Vector3(0, -1, 0) },
+            { position: new THREE.Vector3(0, 0, 0), direction: new THREE.Vector3(0, 1, 0) }, // Center Socket
         ],
     },
     't-joint': {
@@ -178,6 +182,17 @@ export const COMPONENT_DEFINITIONS = {
         standardWeight: 'Sch 40 / Std. Wt.',
         sockets: [
             { position: new THREE.Vector3(0, -0.15, 0), direction: new THREE.Vector3(0, -1, 0) },
+        ],
+    },
+    'water-tap': {
+        type: 'water-tap',
+        weightPerUnit: 0.8,
+        standardWeight: 'Standard Chrome',
+        defaultMaterial: 'brass',
+        defaultOD: 0.25,
+        defaultWT: 0.015,
+        sockets: [
+            { position: new THREE.Vector3(0, -0.4, 0), direction: new THREE.Vector3(0, -1, 0) },
         ],
     },
     cylinder: {

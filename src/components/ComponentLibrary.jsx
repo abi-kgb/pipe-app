@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Package, ArrowRight, ArrowUp, Circle, Filter, Droplets, GitBranch, Slash, StopCircle, Trash2, Move, RotateCcw, Scaling, Disc, Hash, Plus, Link, Square, Cylinder, Cuboid, Cone, Layers, MousePointer2, History as HistoryIcon, Clock, Copy, List } from 'lucide-react';
 import { COMPONENT_DEFINITIONS, MATERIALS } from '../config/componentDefinitions';
 
@@ -19,6 +19,7 @@ const LIBRARY_PARTS = [
   { type: 'tank', label: 'Tank', icon: <Droplets size={20} />, color: '#2563eb' },
   { type: 'cap', label: 'End Cap', icon: <StopCircle size={20} />, color: '#757575' },
   { type: 'plug', label: 'Plug', icon: <Square size={20} />, color: '#757575' },
+  { type: 'water-tap', label: 'Water Tap', icon: <Droplets size={20} />, color: '#0ea5e9' },
   { type: 'cylinder', label: 'Cylinder Solid', icon: <Cylinder size={20} />, color: '#6366f1' },
   { type: 'cube', label: 'Cube Solid', icon: <Cuboid size={20} />, color: '#8b5cf6' },
   { type: 'cone', label: 'Cone Solid', icon: <Cone size={20} />, color: '#d946ef' },
@@ -42,7 +43,10 @@ export default function ComponentLibrary({
   onSaveToHistory,
   darkMode,
   placingType,
+  placingTemplate,
   onDuplicate,
+  onUngroup,
+  onGroup,
   onSaveToLibrary,
   userParts = [],
   onDeleteUserPart,
@@ -50,7 +54,7 @@ export default function ComponentLibrary({
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('library'); // 'library' or 'history'
-  const selectedComponents = components.filter((c) => selectedIds.includes(c.id));
+  const selectedComponents = useMemo(() => components.filter((c) => selectedIds.includes(c.id)), [components, selectedIds]);
   const isMultiSelect = selectedIds.length > 1;
 
   const updateProperty = (key, value) => {
@@ -88,10 +92,10 @@ export default function ComponentLibrary({
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
 
-  const filteredParts = LIBRARY_PARTS.filter(part =>
+  const filteredParts = useMemo(() => LIBRARY_PARTS.filter(part =>
     part.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
     part.type.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  ), [searchQuery]);
 
   return (
     <div className={`w-full h-full border-r flex flex-col shadow-xl z-20 overflow-hidden transition-colors duration-300 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-[#f8fbff] border-blue-100/50'}`}>
@@ -397,6 +401,31 @@ export default function ComponentLibrary({
                 <div className={`px-1 text-[9px] italic transition-colors ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>ID is automatically calculated</div>
               </div>
 
+              {/* Pipe Profile (Round/Square) */}
+              {selectedComponents.some(c => ['straight', 'vertical', 'elbow', 'elbow-45', 't-joint', 'cross', 'reducer', 'coupling', 'union'].includes(c.component_type)) && (
+                <div className="space-y-2 pb-2">
+                  <label className={`text-[10px] font-black uppercase tracking-widest px-1 transition-colors ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Pipe Profile</label>
+                  <div className={`flex p-1 rounded-xl gap-1 transition-colors ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                    {[
+                      { value: 'round', label: '● Round' },
+                      { value: 'square', label: '■ Square' },
+                    ].map(({ value, label }) => {
+                      const currentProfile = selectedComponents[0].properties?.profile || 'round';
+                      const isActive = currentProfile === value;
+                      return (
+                        <button
+                          key={value}
+                          onClick={() => updateProperty('profile', value)}
+                          className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${isActive ? (darkMode ? 'bg-slate-700 text-blue-400 shadow-sm' : 'bg-white text-blue-600 shadow-sm shadow-slate-200') : (darkMode ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-slate-600')}`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Material Selection (Box Grid) */}
               <div className="space-y-3 pt-2">
                 <label className={`text-[10px] font-black uppercase tracking-widest px-1 transition-colors ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Material Selection</label>
@@ -465,6 +494,26 @@ export default function ComponentLibrary({
                 </button>
               </div>
 
+              {selectedIds.length > 1 && !selectedComponents.every(c => c.assemblyId && c.assemblyId === selectedComponents[0].assemblyId) && (
+                <button
+                  onClick={onGroup}
+                  className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all duration-300 text-[10px] font-black uppercase border mt-2 group shadow-sm ${darkMode ? 'bg-blue-950/20 hover:bg-blue-600 text-blue-500 hover:text-white border-blue-900/30 hover:shadow-blue-900/50' : 'bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white border-blue-100 hover:shadow-blue-200'}`}
+                >
+                  <Layers size={16} />
+                  Group Selected Parts
+                </button>
+              )}
+
+              {selectedComponents.some(c => c.assemblyId) && (
+                <button
+                  onClick={onUngroup}
+                  className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all duration-300 text-[10px] font-black uppercase border mt-2 group shadow-sm ${darkMode ? 'bg-amber-950/20 hover:bg-amber-600 text-amber-500 hover:text-white border-amber-900/30 hover:shadow-amber-900/50' : 'bg-amber-50 hover:bg-amber-600 text-amber-600 hover:text-white border-amber-100 hover:shadow-amber-200'}`}
+                >
+                  <Layers size={16} className="rotate-180" />
+                  Ungroup Assembly
+                </button>
+              )}
+
               <button
                 onClick={onSaveToLibrary}
                 className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all duration-300 text-[10px] font-black uppercase border mt-2 group shadow-sm ${darkMode ? 'bg-emerald-950/20 hover:bg-emerald-600 text-emerald-500 hover:text-white border-emerald-900/30 hover:shadow-emerald-900/50' : 'bg-emerald-50 hover:bg-emerald-600 text-emerald-600 hover:text-white border-emerald-100 hover:shadow-emerald-200'}`}
@@ -483,7 +532,7 @@ export default function ComponentLibrary({
                   <div key={part.id} className="relative group/user">
                     <button
                       onClick={() => onAddComponent(part.type, part)}
-                      className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all duration-300 border-2 shadow-sm hover:shadow-md ${placingType === part.type && part.id === part.id
+                      className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all duration-300 border-2 shadow-sm hover:shadow-md ${placingType === part.type && placingTemplate?.id === part.id
                         ? (darkMode ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-emerald-600 border-emerald-500 text-white shadow-emerald-200')
                         : (darkMode ? 'bg-slate-800 border-slate-700 hover:bg-emerald-700 hover:border-emerald-500' : 'bg-white border-slate-100/80 hover:bg-emerald-50 hover:border-emerald-200')
                         }`}
@@ -603,7 +652,8 @@ export default function ComponentLibrary({
                 ))
               ) : (
                 <div className={`text-center py-10 border-2 border-dashed rounded-2xl transition-colors ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50/50 border-slate-100'}`}>
-                  <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">No history yet</p>
+                  <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest px-4">No history records yet</p>
+                  <p className="text-[8px] font-bold text-slate-400 mt-2 px-6 leading-relaxed">Designs are archived here when you click "Save Current", export a PDF, or start a "New" project.</p>
                 </div>
               )}
             </div>

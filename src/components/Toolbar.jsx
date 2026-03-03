@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
-import { Save, Plus, Info, Sun, Moon, List, Undo, Redo, Lock, Unlock, ChevronDown, FileText, Table, MousePointer2 } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Save, Plus, Info, Sun, Moon, List, Undo, Redo, Lock, Unlock, ChevronDown, FileText, Table, MousePointer2, CheckCircle2, RotateCw, Zap } from 'lucide-react';
 import { formatIndianNumber } from '../utils/pricing';
 
 export default function Toolbar({
@@ -21,20 +21,15 @@ export default function Toolbar({
   onRedo,
   isLocked,
   onToggleLock,
-  onExportExcel
+  onExportExcel,
+  isSaving,
+  user,
+  onLogout,
+  blueprintMode,
+  onToggleBlueprint,
+  performanceMode,
+  onTogglePerformance
 }) {
-  const [showExport, setShowExport] = useState(false);
-  const exportRef = useRef(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (exportRef.current && !exportRef.current.contains(event.target)) {
-        setShowExport(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
   return (
     <div className={`transition-colors duration-300 backdrop-blur-xl border-b flex items-center justify-between px-4 lg:px-6 z-40 shadow-sm ${isMobile ? 'h-20 lg:h-24' : 'h-24'} ${darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white/70 border-blue-100/50'}`}>
       <div className="flex items-center gap-3 lg:gap-4 group/name">
@@ -59,7 +54,7 @@ export default function Toolbar({
         {!isMobile && (
           <>
             <div className={`h-10 w-px transition-colors ${darkMode ? 'bg-slate-800' : 'bg-blue-100'}`} />
-            <div className="relative flex items-center">
+            <div className="relative flex items-center gap-3">
               <input
                 type="text"
                 value={designName}
@@ -67,6 +62,22 @@ export default function Toolbar({
                 className={`bg-transparent text-xs font-semibold uppercase tracking-widest px-2 py-1 rounded border border-transparent transition-all w-48 focus:outline-none ${darkMode ? 'text-white hover:border-slate-700 focus:border-blue-500 focus:bg-slate-800/50' : 'text-slate-900 hover:border-blue-100 focus:border-blue-300 focus:bg-white/50'}`}
                 placeholder="Project Name..."
               />
+              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[9px] font-bold uppercase tracking-wider transition-all duration-500 ${isSaving
+                ? 'text-blue-500 bg-blue-500/10'
+                : (darkMode ? 'text-slate-500 bg-slate-800/50' : 'text-slate-400 bg-slate-100')
+                }`}>
+                {isSaving ? (
+                  <>
+                    <RotateCw size={10} className="animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 size={10} className="text-emerald-500" />
+                    <span>Saved</span>
+                  </>
+                )}
+              </div>
             </div>
           </>
         )}
@@ -74,13 +85,31 @@ export default function Toolbar({
 
       <div className="flex items-center gap-2 lg:gap-3">
         {!isMobile && (
-          <button
-            onClick={onToggleTheme}
-            className={`p-2.5 rounded-xl border transition-all active:scale-95 shadow-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-yellow-400 hover:bg-slate-700' : 'bg-white border-blue-100 text-slate-400 hover:text-blue-500 hover:bg-blue-50/50'}`}
-            title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
-          >
-            {darkMode ? <Sun size={18} /> : <Moon size={18} />}
-          </button>
+          <>
+            <button
+              onClick={onTogglePerformance}
+              className={`p-2.5 rounded-xl border transition-all active:scale-95 shadow-sm ${performanceMode ? 'bg-amber-600 border-amber-500 text-white shadow-lg shadow-amber-500/20' : (darkMode ? 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700' : 'bg-white border-blue-100 text-slate-400 hover:bg-blue-50')}`}
+              title={performanceMode ? "Disable High Performance Mode (Show All Visuals)" : "Enable High Performance Mode (Faster on slow PCs)"}
+            >
+              <Zap size={18} className={performanceMode ? 'animate-pulse' : ''} />
+            </button>
+
+            <button
+              onClick={onToggleTheme}
+              className={`p-2.5 rounded-xl border transition-all active:scale-95 shadow-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-yellow-400 hover:bg-slate-700' : 'bg-white border-blue-100 text-slate-400 hover:text-blue-50/50'}`}
+              title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            >
+              {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+
+            <button
+              onClick={() => onToggleBlueprint()}
+              className={`p-2.5 rounded-xl border transition-all active:scale-95 shadow-sm ${blueprintMode ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/20' : (darkMode ? 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700' : 'bg-white border-blue-100 text-slate-400 hover:text-blue-50/50')}`}
+              title={blueprintMode ? "Back to Workspace" : "Blueprint Mode"}
+            >
+              <RotateCw size={18} className={blueprintMode ? 'rotate-45 transition-transform' : 'transition-transform'} />
+            </button>
+          </>
         )}
 
 
@@ -149,52 +178,25 @@ export default function Toolbar({
           <span className="text-sm font-semibold hidden sm:inline">New</span>
         </button>
 
-        <div className="relative" ref={exportRef}>
+        {!isMobile && (
           <button
-            onClick={() => setShowExport(!showExport)}
-            className="flex items-center gap-2 px-4 lg:px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl shadow-md shadow-blue-900/10 transition-all active:scale-95 border border-blue-600"
+            onClick={onLogout}
+            className={`flex items-center gap-2 px-3 lg:px-4 py-2 lg:py-2 rounded-xl border transition-all active:scale-95 shadow-sm group/logout ${darkMode ? 'bg-slate-800 border-slate-700 text-slate-400 hover:text-rose-400 hover:border-rose-500/50' : 'bg-white/80 hover:bg-rose-50 text-slate-600 border-blue-100 hover:text-rose-600 hover:border-rose-200'}`}
+            title="Logout"
           >
-            <Save size={18} />
-            <span className="text-[10px] lg:text-xs font-bold uppercase tracking-tight hidden sm:inline">Export</span>
-            <ChevronDown size={14} className={`transition-transform duration-200 ${showExport ? 'rotate-180' : ''}`} />
+            <Lock size={16} className="group-hover/logout:scale-110 transition-transform" />
+            <span className="text-xs font-bold uppercase tracking-tight">Exit</span>
           </button>
+        )}
 
-          {showExport && (
-            <div className={`absolute right-0 mt-2 w-48 rounded-xl shadow-2xl border bg-white overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 duration-200 ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-blue-100'}`}>
-              <button
-                onClick={() => {
-                  onSave();
-                  setShowExport(false);
-                }}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${darkMode ? 'text-slate-200 hover:bg-slate-700' : 'text-slate-700 hover:bg-blue-50'}`}
-              >
-                <div className="p-1.5 rounded-lg bg-red-100 text-red-600">
-                  <FileText size={16} />
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-xs font-bold">PDF Blueprint</span>
-                  <span className="text-[9px] text-slate-400">Drawing + BOM</span>
-                </div>
-              </button>
-
-              <button
-                onClick={() => {
-                  onExportExcel();
-                  setShowExport(false);
-                }}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-left border-t transition-colors ${darkMode ? 'text-slate-200 border-slate-700 hover:bg-slate-700' : 'text-slate-700 border-blue-50 hover:bg-blue-50'}`}
-              >
-                <div className="p-1.5 rounded-lg bg-green-100 text-green-600">
-                  <Table size={16} />
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-xs font-bold">Excel BOM</span>
-                  <span className="text-[9px] text-slate-400">Microsoft Excel</span>
-                </div>
-              </button>
-            </div>
-          )}
-        </div>
+        <button
+          onClick={onSave}
+          className="flex items-center gap-2 px-5 lg:px-6 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl shadow-md shadow-blue-900/10 transition-all active:scale-95 border border-blue-600 group/blueprint"
+          disabled={isSaving}
+        >
+          <FileText size={18} className="group-hover:scale-110 transition-transform" />
+          <span className="text-[10px] lg:text-xs font-black uppercase tracking-tight">Blueprint</span>
+        </button>
       </div>
     </div>
   );

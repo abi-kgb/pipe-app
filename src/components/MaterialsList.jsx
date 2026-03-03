@@ -46,11 +46,13 @@ export default function MaterialsList({ designName = 'Untitled Project', compone
         }
     });
 
-    const materials = Array.from(map.values()).map(item => {
-        const gst = item.baseCost * 0.18;
-        const total = item.baseCost + gst;
-        return { ...item, gst, totalCost: total };
-    });
+    const materials = Array.from(map.values())
+        .sort((a, b) => a.type.localeCompare(b.type)) // Alphabetical order A-Z
+        .map(item => {
+            const gst = item.baseCost * 0.18;
+            const total = item.baseCost + gst;
+            return { ...item, gst, totalCost: total };
+        });
     const grandTotal = materials.reduce((sum, item) => sum + item.totalCost, 0);
     const totalWeight = materials.reduce((sum, item) => sum + item.totalWeight, 0);
 
@@ -167,13 +169,26 @@ export default function MaterialsList({ designName = 'Untitled Project', compone
                 'Total Price (INR)': item.totalCost.toFixed(2)
             }));
 
-            const worksheet = XLSX.utils.json_to_sheet(bomData);
+            const subtotal = materials.reduce((sum, item) => sum + item.baseCost, 0);
+            const totalGST = materials.reduce((sum, item) => sum + item.gst, 0);
+            const totalWgt = materials.reduce((sum, item) => sum + item.totalWeight, 0);
+
+            const summaryRows = [
+                { 'Tag': '', 'Component': '', 'Material': '', 'OD (m)': '', 'Thick (m)': '', 'Length (m)': '', 'Weight (kg)': '', 'Volume (m3)': '', 'Quantity': '', 'Base Price (INR)': '', 'GST 18% (INR)': '', 'Total Price (INR)': '' },
+                { 'Tag': '', 'Component': 'TOTAL WEIGHT', 'Material': '', 'OD (m)': '', 'Thick (m)': '', 'Length (m)': '', 'Weight (kg)': totalWgt.toFixed(2), 'Volume (m3)': '', 'Quantity': '', 'Base Price (INR)': '', 'GST 18% (INR)': '', 'Total Price (INR)': '' },
+                { 'Tag': '', 'Component': 'SUBTOTAL (Before GST)', 'Material': '', 'OD (m)': '', 'Thick (m)': '', 'Length (m)': '', 'Weight (kg)': '', 'Volume (m3)': '', 'Quantity': '', 'Base Price (INR)': '', 'GST 18% (INR)': '', 'Total Price (INR)': subtotal.toFixed(2) },
+                { 'Tag': '', 'Component': 'GST @ 18%', 'Material': '', 'OD (m)': '', 'Thick (m)': '', 'Length (m)': '', 'Weight (kg)': '', 'Volume (m3)': '', 'Quantity': '', 'Base Price (INR)': '', 'GST 18% (INR)': '', 'Total Price (INR)': totalGST.toFixed(2) },
+                { 'Tag': '', 'Component': '*** GRAND TOTAL (Incl. GST) ***', 'Material': '', 'OD (m)': '', 'Thick (m)': '', 'Length (m)': '', 'Weight (kg)': '', 'Volume (m3)': '', 'Quantity': '', 'Base Price (INR)': '', 'GST 18% (INR)': '', 'Total Price (INR)': grandTotal.toFixed(2) },
+            ];
+
+            const worksheet = XLSX.utils.json_to_sheet([...bomData, ...summaryRows]);
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, worksheet, 'Bill of Materials');
 
             // Set column widths
+            const allRows = [...bomData, ...summaryRows];
             const colWidths = Object.keys(bomData[0]).map(key => ({
-                wch: Math.max(key.length, ...bomData.map(r => r[key].toString().length)) + 2
+                wch: Math.max(key.length, ...allRows.map(r => r[key]?.toString().length || 0)) + 2
             }));
             worksheet['!cols'] = colWidths;
 
@@ -265,6 +280,40 @@ export default function MaterialsList({ designName = 'Untitled Project', compone
                                     </tr>
                                 ))}
                             </tbody>
+                            <tfoot className="bg-blue-50/50 border-t-2 border-blue-100">
+                                <tr>
+                                    <td colSpan="7" className="py-6 px-4">
+                                        <div className="flex items-center gap-4 text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">
+                                            <div className="flex items-center gap-2">
+                                                <Weight size={12} />
+                                                Total Weight: {totalWeight.toFixed(2)} kg
+                                            </div>
+                                            <div className="w-1 h-1 bg-slate-300 rounded-full" />
+                                            <span>BOM Generated Successfully</span>
+                                        </div>
+                                    </td>
+                                    <td colSpan="5" className="py-6 px-4">
+                                        <div className="flex flex-col gap-2 items-end">
+                                            <div className="flex items-center gap-8 text-[11px] font-bold text-slate-500 uppercase">
+                                                <span>Subtotal</span>
+                                                <span className="font-mono text-slate-700 min-w-[100px] text-right">₹{formatIndianNumber(grandTotal / 1.18)}</span>
+                                            </div>
+                                            <div className="flex items-center gap-8 text-[11px] font-bold text-slate-400 uppercase">
+                                                <span>GST (18%)</span>
+                                                <span className="font-mono text-slate-500 min-w-[100px] text-right">₹{formatIndianNumber(grandTotal - (grandTotal / 1.18))}</span>
+                                            </div>
+                                            <div className="h-px w-48 bg-blue-200 mt-1" />
+                                            <div className="flex items-center gap-8 text-lg font-black text-slate-900 uppercase tracking-tight">
+                                                <span className="text-blue-700">Grand Total</span>
+                                                <span className="font-mono text-blue-800 bg-blue-100/50 px-3 py-1 rounded-lg border border-blue-200 min-w-[140px] text-right">
+                                                    ₹{formatIndianNumber(grandTotal)}
+                                                </span>
+                                            </div>
+                                            <span className="text-[9px] text-slate-400 font-bold italic">* All values in Indian Rupees (₹)</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tfoot>
                         </table>
                     </div>
 
@@ -315,14 +364,14 @@ export default function MaterialsList({ designName = 'Untitled Project', compone
                         className="flex items-center gap-2 px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl transition-all font-black text-sm uppercase tracking-tight shadow-md shadow-green-900/10 active:scale-95"
                     >
                         <Download size={18} />
-                        Excel
+                        Excel BOM
                     </button>
                     <button
                         onClick={handleDownloadPDF}
                         className="flex items-center gap-2 px-6 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-xl transition-all font-black text-sm uppercase tracking-tight shadow-lg shadow-blue-900/10 active:scale-95"
                     >
                         <FileText size={18} />
-                        PDF
+                        Blueprint PDF
                     </button>
                 </div>
             </div>
