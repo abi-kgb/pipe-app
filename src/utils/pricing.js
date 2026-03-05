@@ -140,6 +140,10 @@ export const calculateComponentCost = (component) => {
             cost = weight * ratePerKg;
             break;
         }
+        case 'wall': {
+            cost = 0;
+            break;
+        }
         default: {
             // For fittings/valves: Use base price OR weight price, whichever is higher?
             // Or just weight price?
@@ -168,7 +172,7 @@ export const calculateComponentCost = (component) => {
 // ─────────────────────────────────────────────────────────────────
 export const calculateComponentWeight = (component) => {
     const def = COMPONENT_DEFINITIONS[component.component_type];
-    if (!def) return 0;
+    if (!def || component.component_type === 'wall') return 0;
 
     const materialKey = component.properties?.material || def.defaultMaterial || 'pvc';
     const material = MATERIALS[materialKey];

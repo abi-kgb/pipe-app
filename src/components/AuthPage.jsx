@@ -63,21 +63,6 @@ function FloatingParticles({ count = 100 }) {
 const Background3D = () => {
     return (
         <div className="absolute inset-0 z-0 bg-slate-950">
-            <React.Suspense fallback={null}>
-                <Canvas>
-                    <PerspectiveCamera makeDefault position={[0, 0, 8]} />
-                    <ambientLight intensity={0.8} />
-                    <pointLight position={[10, 10, 10]} intensity={2} color="#0ea5e9" />
-                    <pointLight position={[-10, -10, -10]} intensity={1} color="#8b5cf6" />
-
-                    <AnimatedPipe color="#0ea5e9" position={[-4, 2, -2]} rotation={[0, 0, Math.PI / 4]} speed={1} />
-                    <AnimatedPipe color="#3b82f6" position={[5, -3, -1]} rotation={[0, 0, -Math.PI / 6]} speed={0.8} />
-                    <AnimatedPipe color="#1d4ed8" position={[0, 4, -4]} rotation={[Math.PI / 2, 0, 0]} speed={1.2} />
-
-                    <FloatingParticles count={200} />
-                    {/* Environment removed - was causing HDR fetch failure (potsdamer_platz_1k.hdr) */}
-                </Canvas>
-            </React.Suspense>
             <div className="absolute inset-0 bg-gradient-to-tr from-slate-950 via-slate-950/80 to-blue-900/20 pointer-events-none" />
         </div>
     );

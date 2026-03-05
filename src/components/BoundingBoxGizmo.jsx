@@ -11,7 +11,9 @@ export default function BoundingBoxGizmo({ component, onUpdate }) {
     // Dimensions
     const length = component.properties?.length || 2;
     const radiusScale = component.properties?.radiusScale || 1;
-    const radius = 0.15 * radiusScale;
+    const radius = component.component_type === 'industrial-tank'
+        ? (component.properties?.od || 2.2) / 2
+        : 0.15 * radiusScale;
 
     const boxHeight = length;
     const boxWidth = radius * 2;

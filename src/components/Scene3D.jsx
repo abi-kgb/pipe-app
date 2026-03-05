@@ -107,6 +107,10 @@ const SharedSceneElements = ({
   suppressLabels = false,
   onTransform,
   performanceMode = false,
+  isLocked = false,
+  connectionMode = false,
+  selectedSockets = [],
+  onSocketClick,
 }) => {
   const isBlueprint = isCapture || blueprintMode;
   const bgColor = isBlueprint ? '#ffffff' : (darkMode ? '#0f172a' : '#ffffff');
@@ -121,8 +125,9 @@ const SharedSceneElements = ({
       <pointLight position={[10, 10, 10]} intensity={darkMode ? 0.8 : 1.2} />
       <spotLight position={[-10, 20, 10]} angle={0.15} penumbra={1} intensity={darkMode ? 1.0 : 1.5} castShadow />
 
-      {/* Realistic Environment Refelctions - Disabled in Performance Mode */}
-      {!performanceMode && <Environment preset="city" />}
+      {/* Realistic Environment Refelctions - Disabled to prevent HDR fetch failures */}
+      <spotLight position={[10, 20, 10]} intensity={1.5} />
+      <pointLight position={[-10, 10, -10]} intensity={1} />
 
       {/* Grounding Contact Shadows - Disabled in Performance/Capture Mode */}
       {!isCapture && !performanceMode && (
@@ -172,6 +177,9 @@ const SharedSceneElements = ({
             blueprintMode={blueprintMode}
             suppressLabels={suppressLabels}
             performanceMode={performanceMode}
+            connectionMode={connectionMode}
+            selectedSockets={selectedSockets}
+            onSocketClick={onSocketClick}
           />
         ))}
       </group>
@@ -199,19 +207,20 @@ const SharedSceneElements = ({
         />
       )}
 
-      {/* Marquee Selection Logic */}
-      {!isCapture && !placingType && (
+      {/* Marquee Selection Logic - Only active when view is locked */}
+      {!isCapture && !placingType && isLocked && (
         <SelectionManager
           components={components}
           onBatchSelect={onBatchSelect}
           isDragging={isDragging}
+          isLocked={isLocked}
         />
       )}
     </>
   );
 };
 
-const SelectionManager = ({ components, onBatchSelect, isDragging }) => {
+const SelectionManager = ({ components, onBatchSelect, isDragging, isLocked }) => {
   const { camera, size, pointer, gl } = useThree();
   const [start, setStart] = useState(null);
   const [current, setCurrent] = useState(null);
@@ -222,8 +231,8 @@ const SelectionManager = ({ components, onBatchSelect, isDragging }) => {
     if (!canvas) return;
 
     const handleDown = (e) => {
-      // Only trigger on left click
-      if (e.button !== 0) return;
+      // Only trigger if view is locked and it's a left click
+      if (!isLocked || e.button !== 0) return;
 
       // Ensure we're clicking the actual canvas or its children (not external UI)
       if (e.target !== canvas && !canvas.contains(e.target)) return;
@@ -362,7 +371,8 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
     if (!snap ||
       result.position.distanceToSquared(snap.position) > 0.0001 ||
       result.isValid !== snap.isValid ||
-      result.isSnappedToSocket !== snap.isSnappedToSocket) {
+      result.isSnappedToSocket !== snap.isSnappedToSocket ||
+      result.isIntersecting !== snap.isIntersecting) {
       setSnap(result);
     }
   });
@@ -410,8 +420,9 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
     connections: [],
     properties: placingTemplate?.properties || {}, // Use template properties for ghost rendering
     _isGhost: true,
-    _isValid: snap.isValid,
-    _isSnapped: snap.isSnappedToSocket
+    _isValid: snap.isValid && !snap.isIntersecting,
+    _isSnapped: snap.isSnappedToSocket,
+    _isIntersecting: snap.isIntersecting
   };
 
   return (
@@ -453,7 +464,8 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
                   rotation_y: finalRot.y * (180 / Math.PI),
                   rotation_z: finalRot.z * (180 / Math.PI),
                   _isGhost: true,
-                  _isValid: snap.isValid
+                  _isValid: snap.isValid && !snap.isIntersecting,
+                  _isIntersecting: snap.isIntersecting
                 }}
                 isSelected={false}
                 isGhost={true}
@@ -498,9 +510,9 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
         <mesh>
           <sphereGeometry args={[snap.isSnappedToSocket ? 0.35 : 0.15, 16, 16]} />
           <meshBasicMaterial
-            color={snap.isSnappedToSocket ? '#10b981' : (snap.isValid ? '#06b6d4' : '#f43f5e')}
+            color={snap.isIntersecting ? '#f43f5e' : (snap.isSnappedToSocket ? '#10b981' : (snap.isValid ? '#06b6d4' : '#f43f5e'))}
             transparent
-            opacity={snap.isSnappedToSocket ? 0.9 : 0.4}
+            opacity={snap.isSnappedToSocket || snap.isIntersecting ? 0.9 : 0.4}
             depthTest={false} // Always on top
           />
         </mesh>
@@ -518,6 +530,15 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
           <sphereGeometry args={[0.8, 16, 16]} />
           <meshBasicMaterial color="red" transparent opacity={0.1} />
         </mesh>
+
+        {/* Collision Warning Label */}
+        {snap.isIntersecting && (
+          <Html position={[0, 0.5, 0]} center>
+            <div className="bg-red-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter whitespace-nowrap shadow-xl border border-white/20">
+              Collision
+            </div>
+          </Html>
+        )}
       </group>
     </group>
   );
@@ -570,7 +591,8 @@ const EditorControls = ({ selectedIds, components, onUpdateMultiple, transformMo
 
   const [transformInfo, setTransformInfo] = useState({
     pos: { x: 0, y: 0, z: 0 },
-    rot: { x: 0, y: 0, z: 0 }
+    rot: { x: 0, y: 0, z: 0 },
+    isIntersecting: false
   });
 
   if (selectedIds.length === 0) return null;
@@ -639,6 +661,9 @@ const EditorControls = ({ selectedIds, components, onUpdateMultiple, transformMo
                 if (snap) {
                   pivotRef.current.position.copy(snap.position);
                   pivotRef.current.updateMatrixWorld();
+                  setTransformInfo(prev => ({ ...prev, isIntersecting: snap.isIntersecting }));
+                } else {
+                  setTransformInfo(prev => ({ ...prev, isIntersecting: false }));
                 }
               }
             }
@@ -712,10 +737,12 @@ const EditorControls = ({ selectedIds, components, onUpdateMultiple, transformMo
           <div className="bg-slate-900/90 backdrop-blur-md text-white px-4 py-3 rounded-2xl text-[10px] font-bold shadow-2xl border border-white/20 whitespace-nowrap animate-in slide-in-from-bottom-4 duration-300 flex flex-col gap-3 min-w-[180px]">
             <div className="flex items-center justify-between border-b border-white/10 pb-2">
               <div className="flex items-center gap-2">
-                <RotateCw size={12} className="text-blue-400 animate-spin-slow" />
-                <span className="text-blue-400 font-black tracking-tight uppercase">Axis Monitor</span>
+                <RotateCw size={12} className={`${transformInfo.isIntersecting ? 'text-red-500' : 'text-blue-400'} animate-spin-slow`} />
+                <span className={`${transformInfo.isIntersecting ? 'text-red-500' : 'text-blue-400'} font-black tracking-tight uppercase`}>
+                  {transformInfo.isIntersecting ? 'Collision Alert' : 'Axis Monitor'}
+                </span>
               </div>
-              <span className="text-[9px] text-slate-500 font-black px-1.5 py-0.5 rounded bg-white/5 uppercase">
+              <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase ${transformInfo.isIntersecting ? 'bg-red-500/20 text-red-500' : 'bg-white/5 text-slate-500'}`}>
                 {selectedIds.length === 1 ? 'Single' : 'Batch'}
               </span>
             </div>
@@ -936,20 +963,23 @@ const ViewportCameraControls = ({ viewMode, setResetHandler, setZoomHandlers, se
   }, [selectedIds, components, viewMode]);
 
   useEffect(() => {
+    console.log(`[CameraControls] Registering handlers for ${viewMode}`);
     setResetHandler(handleReset);
     if (setZoomHandlers) {
       setZoomHandlers({
         in: () => {
           const controls = controlsRef.current;
+          console.log(`[ZoomIn] ${viewMode}, current zoom:`, controls?.camera?.zoom);
           if (controls) controls.zoomTo(controls.camera.zoom * 1.5, true);
         },
         out: () => {
           const controls = controlsRef.current;
+          console.log(`[ZoomOut] ${viewMode}, current zoom:`, controls?.camera?.zoom);
           if (controls) controls.zoomTo(controls.camera.zoom / 1.5, true);
         }
       });
     }
-  }, [handleReset, setResetHandler, setZoomHandlers]);
+  }, [handleReset, setResetHandler, setZoomHandlers, viewMode]);
 
   const mouseButtons = isLocked
     ? { left: 0, middle: 0, right: 0, wheel: 0 }
@@ -982,7 +1012,8 @@ const ViewportCameraControls = ({ viewMode, setResetHandler, setZoomHandlers, se
 
 
 const Scene3D = forwardRef(function Scene3D({
-  components, selectedIds, onSelectComponent, onBatchSelect, placingType, placingTemplate, onPlaceComponent, onCancelPlacement, onUpdateComponent, onUpdateMultiple, transformMode, designName, darkMode, isLocked, suppressLabels = false, blueprintMode, isCapturing = false, performanceMode = false
+  components, selectedIds, onSelectComponent, onBatchSelect, placingType, placingTemplate, onPlaceComponent, onCancelPlacement, onUpdateComponent, onUpdateMultiple, transformMode, designName, darkMode, isLocked, suppressLabels = false, blueprintMode, isCapturing = false, performanceMode = false,
+  connectionMode = false, selectedSockets = [], onSocketClick
 }, ref) {
   const [viewLayout, setViewLayout] = useState(['iso', 'front', 'top']);
   const resetHandlers = useRef({});
@@ -1140,8 +1171,14 @@ const Scene3D = forwardRef(function Scene3D({
         <StableResetButton onReset={() => resetHandlers.current[viewId]?.()} darkMode={darkMode} />
         <ZoomControls
           darkMode={darkMode}
-          onZoomIn={() => zoomHandlers.current[viewId]?.in()}
-          onZoomOut={() => zoomHandlers.current[viewId]?.out()}
+          onZoomIn={() => {
+            console.log(`[ZoomControls] Clicked IN for ${viewId}, handler exists:`, !!zoomHandlers.current[viewId]);
+            zoomHandlers.current[viewId]?.in();
+          }}
+          onZoomOut={() => {
+            console.log(`[ZoomControls] Clicked OUT for ${viewId}, handler exists:`, !!zoomHandlers.current[viewId]);
+            zoomHandlers.current[viewId]?.out();
+          }}
         />
 
         {/* Multi-Select Indicator */}
@@ -1175,6 +1212,9 @@ const Scene3D = forwardRef(function Scene3D({
             suppressLabels={suppressLabels}
             onTransform={(info) => setRealTimeTransform(info)}
             performanceMode={performanceMode}
+            connectionMode={connectionMode}
+            selectedSockets={selectedSockets}
+            onSocketClick={onSocketClick}
           />
         </SceneErrorBoundary>
 
@@ -1190,9 +1230,9 @@ const Scene3D = forwardRef(function Scene3D({
                 <input
                   type="text"
                   className="bg-transparent text-white font-mono text-[10px] font-bold leading-none w-full text-center outline-none focus:text-blue-400"
-                  value={realTimeTransform[axis.toLowerCase()] + '°'}
+                  value={(realTimeTransform[axis.toLowerCase()] ?? 0) + '°'}
                   onChange={(e) => {
-                    const val = e.target.value.replace('°', '');
+                    const val = (e.target.value || '').replace('°', '');
                     setRealTimeTransform(prev => ({ ...prev, [axis.toLowerCase()]: val }));
                   }}
                   onKeyDown={(e) => {
@@ -1230,7 +1270,11 @@ const Scene3D = forwardRef(function Scene3D({
   };
 
   return (
-    <div id="multi-view-container" className={`w-full h-full transition-colors duration-300 ${darkMode ? 'bg-slate-950' : 'bg-slate-50'}`}>
+    <div
+      id="multi-view-container"
+      className={`w-full h-full transition-colors duration-300 ${darkMode ? 'bg-slate-950' : 'bg-slate-50'}`}
+      style={{ cursor: connectionMode ? 'crosshair' : 'auto' }}
+    >
       <ResizablePane
         first={renderViewport(0, "w-full h-full")}
         second={
@@ -1278,6 +1322,9 @@ const Scene3D = forwardRef(function Scene3D({
                 setResetHandler={(handler) => { captureHandlers.current[viewId] = handler; }}
                 isLocked={false} // Hidden capture views are never locked
                 performanceMode={performanceMode}
+                connectionMode={false}
+                selectedSockets={[]}
+                onSocketClick={() => { }}
               />
             </SceneErrorBoundary>
           </div>
@@ -1324,6 +1371,9 @@ const ViewportContent = ({
   suppressLabels = false,
   onTransform,
   performanceMode = false,
+  connectionMode = false,
+  selectedSockets = [],
+  onSocketClick,
 }) => {
   const isDragging = useRef(false);
   const isTransforming = useRef(false);
@@ -1401,6 +1451,10 @@ const ViewportContent = ({
         suppressLabels={suppressLabels}
         onTransform={onTransform}
         performanceMode={performanceMode}
+        isLocked={isLocked}
+        connectionMode={connectionMode}
+        selectedSockets={selectedSockets}
+        onSocketClick={onSocketClick}
       />
     </Canvas>
   );

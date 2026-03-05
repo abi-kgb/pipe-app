@@ -1,7 +1,7 @@
 import { useRef, useState, memo, useMemo } from 'react';
 import { Html, Text, Edges, Billboard, Outlines } from '@react-three/drei';
 import * as THREE from 'three';
-import { MATERIALS } from '../config/componentDefinitions';
+import { MATERIALS, COMPONENT_DEFINITIONS } from '../config/componentDefinitions';
 
 const SOLID_COLORS = {
   cylinder: '#6366f1',
@@ -21,6 +21,9 @@ function PipeComponent({
   isCapture = false,
   blueprintMode = false,
   performanceMode = false,
+  connectionMode = false,
+  selectedSockets = [],
+  onSocketClick,
 }) {
   const meshRef = useRef(null);
   const [isHovered, setIsHovered] = useState(false);
@@ -69,8 +72,10 @@ function PipeComponent({
 
     if (isGhost) {
       let ghostColor = '#3b82f6';
-      if (component._isValid) ghostColor = '#10b981';
+      if (component._isIntersecting) ghostColor = '#f43f5e';
+      else if (component._isValid) ghostColor = '#10b981';
       else if (component._isValid === false) ghostColor = '#f43f5e';
+
       return (
         <meshStandardMaterial
           color={ghostColor}
@@ -140,6 +145,22 @@ function PipeComponent({
         </mesh>
       );
     }
+    if (type === 'industrial-tank') {
+      return (
+        <mesh>
+          <cylinderGeometry args={[hitboxRadius * 1.2, hitboxRadius * 1.2, hitboxLength * 1.5, 8]} />
+          <meshBasicMaterial color="red" transparent opacity={0} />
+        </mesh>
+      );
+    }
+    if (type === 'wall') {
+      return (
+        <mesh>
+          <boxGeometry args={[od * 1.02, length * 1.02, wt * 1.5]} />
+          <meshBasicMaterial color="red" transparent opacity={0} />
+        </mesh>
+      );
+    }
     return null;
   };
 
@@ -197,19 +218,6 @@ function PipeComponent({
               <meshStandardMaterial color="#111" side={THREE.BackSide} />
             </mesh>
           )}
-          {/* ── End-Cap Accent Frames ── clearly show where each pipe starts/ends */}
-          {!isGhost && !isBlueprint && endBars.map((bar, i) => (
-            <group key={i}>
-              <mesh position={[bar.pos[0], len / 2, bar.pos[2]]}>
-                <boxGeometry args={bar.size} />
-                {endMat}
-              </mesh>
-              <mesh position={[bar.pos[0], -len / 2, bar.pos[2]]}>
-                <boxGeometry args={bar.size} />
-                {endMat}
-              </mesh>
-            </group>
-          ))}
         </group>
       );
     };
@@ -364,15 +372,6 @@ function PipeComponent({
                 <mesh position={[0, -length / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>
                   <ringGeometry args={[radiusInner, radiusOuter, 32]} />
                   {material}
-                </mesh>
-                {/* ── End-Cap Accent Rings ── clearly show where each pipe starts/ends */}
-                <mesh position={[0, length / 2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <torusGeometry args={[radiusOuter, Math.max(0.004, radiusOuter * 0.05), 8, 32]} />
-                  <meshStandardMaterial color="#94a3b8" metalness={0.9} roughness={0.1} />
-                </mesh>
-                <mesh position={[0, -length / 2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <torusGeometry args={[radiusOuter, Math.max(0.004, radiusOuter * 0.05), 8, 32]} />
-                  <meshStandardMaterial color="#94a3b8" metalness={0.9} roughness={0.1} />
                 </mesh>
               </>
             )}
@@ -586,6 +585,138 @@ function PipeComponent({
             </mesh>
           </group>
         );
+      case 'industrial-tank':
+        // Dynamic scaling based on the user-defined OD and Length
+        // Default values from componentDefinitions.js: defaultOD: 2.2, defaultWT: 0.08
+        // Total default height (body + cone) ~ 4.0
+        // +0.5m VISUAL padding — appearance only, snapping uses +0.3 independently
+        const tankOD = (od || 2.2) + 0.5;
+        const tankLength = length || 4.0;
+        const vScale = tankLength / 4.0;
+        const hScale = tankOD / 2.2;
+
+        // Split height between body (75%) and cone (25%)
+        const iTankRadius = tankOD / 2;
+        const iBodyHeight = tankLength * 0.75;
+        const iConeHeight = tankLength * 0.25;
+
+        const iTankColor = "#fbbf24"; // Industrial Yellow
+        const iLegColor = darkMode ? "#334155" : "#475569";
+
+        return (
+          <group>
+            {/* Hitbox covering the entire height */}
+            <Hitbox type={type} radius={iTankRadius} length={tankLength} />
+
+            {/* Main Body (Centered locally) */}
+            <mesh position={[0, (iConeHeight / 2), 0]}>
+              <cylinderGeometry args={[iTankRadius, iTankRadius, iBodyHeight, 32]} />
+              <meshStandardMaterial color={iTankColor} metalness={0.4} roughness={0.3} />
+            </mesh>
+
+            {/* Domed Top Cap */}
+            <mesh position={[0, (iConeHeight / 2) + (iBodyHeight / 2), 0]}>
+              <sphereGeometry args={[iTankRadius, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+              <meshStandardMaterial color={iTankColor} metalness={0.4} roughness={0.3} />
+            </mesh>
+
+            {/* Top Nozzle — protrudes above dome apex */}
+            {(() => {
+              const domeCenter = (iConeHeight / 2) + (iBodyHeight / 2);
+              const domeApex = domeCenter + iTankRadius; // very top of the dome hemisphere
+              const nozzlePipeLen = iTankRadius * 0.6;
+              const nozzlePipeY = domeApex + nozzlePipeLen / 2;   // pipe center above dome
+              const nozzleFlangeY = domeApex + nozzlePipeLen;        // flange at top of pipe
+              return (
+                <>
+                  <mesh position={[0, nozzlePipeY, 0]}>
+                    <cylinderGeometry args={[tankOD * 0.09, tankOD * 0.09, nozzlePipeLen, 16]} />
+                    <meshStandardMaterial color={iTankColor} metalness={0.4} roughness={0.3} />
+                  </mesh>
+                  <mesh position={[0, nozzleFlangeY, 0]}>
+                    <cylinderGeometry args={[tankOD * 0.14, tankOD * 0.14, 0.06, 32]} />
+                    <meshStandardMaterial color="#333" />
+                  </mesh>
+                </>
+              );
+            })()}
+
+            {/* Conical Bottom */}
+            <mesh position={[0, -(iBodyHeight / 2) + (iConeHeight / 2) - (iConeHeight / 2), 0]} rotation={[Math.PI, 0, 0]}>
+              <coneGeometry args={[iTankRadius, iConeHeight, 32]} />
+              <meshStandardMaterial color={iTankColor} metalness={0.4} roughness={0.3} />
+            </mesh>
+
+            {/* Bottom Nozzle — protrudes downward from cone apex */}
+            {(() => {
+              // coneBottom is the lowest point of the cone (apex pointing down)
+              const coneBottom = -(iBodyHeight / 2) - (iConeHeight / 2);
+              const nozzlePipeLen = iTankRadius * 0.5;
+              const nozzlePipeY = coneBottom - nozzlePipeLen / 2;
+              const nozzleFlangeY = coneBottom - nozzlePipeLen;
+              return (
+                <>
+                  <mesh position={[0, nozzlePipeY, 0]}>
+                    <cylinderGeometry args={[tankOD * 0.09, tankOD * 0.09, nozzlePipeLen, 16]} />
+                    <meshStandardMaterial color={iTankColor} metalness={0.4} roughness={0.3} />
+                  </mesh>
+                  <mesh position={[0, nozzleFlangeY, 0]}>
+                    <cylinderGeometry args={[tankOD * 0.14, tankOD * 0.14, 0.06, 32]} />
+                    <meshStandardMaterial color="#333" />
+                  </mesh>
+                </>
+              );
+            })()}
+
+            {/* Side Nozzles (Aligned with sockets at 1.5m and 0.5m scaled) */}
+            {[1.5 * vScale, 0.5 * vScale].map((yPos, idx) => (
+              <group key={idx} position={[0, yPos, 0]}>
+                {/* Left */}
+                <group rotation={[0, 0, Math.PI / 2]}>
+                  <mesh position={[0, iTankRadius * 0.85, 0]}>
+                    <cylinderGeometry args={[tankOD * 0.08, tankOD * 0.08, iTankRadius * 0.3, 16]} />
+                    <meshStandardMaterial color={iTankColor} />
+                  </mesh>
+                  <mesh position={[0, iTankRadius, 0]}>
+                    <cylinderGeometry args={[tankOD * 0.12, tankOD * 0.12, 0.05, 32]} />
+                    <meshStandardMaterial color="#333" />
+                  </mesh>
+                </group>
+                {/* Right */}
+                <group rotation={[0, 0, -Math.PI / 2]}>
+                  <mesh position={[0, iTankRadius * 0.85, 0]}>
+                    <cylinderGeometry args={[tankOD * 0.08, tankOD * 0.08, iTankRadius * 0.3, 16]} />
+                    <meshStandardMaterial color={iTankColor} />
+                  </mesh>
+                  <mesh position={[0, iTankRadius, 0]}>
+                    <cylinderGeometry args={[tankOD * 0.12, tankOD * 0.12, 0.05, 32]} />
+                    <meshStandardMaterial color="#333" />
+                  </mesh>
+                </group>
+              </group>
+            ))}
+
+            {/* Support Legs (Height based on cone height) */}
+            {[45, 135, 225, 315].map(angle => {
+              const rad = angle * Math.PI / 180;
+              const legDist = iTankRadius * 0.85;
+              const legHeight = iConeHeight + (iBodyHeight * 0.5);
+              return (
+                <mesh
+                  key={angle}
+                  position={[
+                    Math.cos(rad) * legDist,
+                    -(iBodyHeight / 2) + (iConeHeight / 2) - (legHeight / 2) + (iConeHeight),
+                    Math.sin(rad) * legDist
+                  ]}
+                >
+                  <boxGeometry args={[tankOD * 0.05, legHeight, tankOD * 0.05]} />
+                  <meshStandardMaterial color={iLegColor} />
+                </mesh>
+              );
+            })}
+          </group>
+        );
       case 'cap':
         return (
           <group>
@@ -640,6 +771,7 @@ function PipeComponent({
               <cylinderGeometry args={[radiusOuter, radiusOuter, 0.1, 32, 1, true]} />
               {material}
             </mesh>
+            {/* Component Labels & Dimensions */}
             {!isGhost && !isBlueprint && (
               <>
                 {/* Inner surfaces */}
@@ -800,6 +932,17 @@ function PipeComponent({
             </mesh>
           </group>
         );
+      case 'wall':
+        // od = Width, length = Height, wt = Thickness
+        return (
+          <group>
+            <Hitbox type={type} od={od} length={length} wt={wt} />
+            <mesh>
+              <boxGeometry args={[od, length, wt]} />
+              {material}
+            </mesh>
+          </group>
+        );
       default:
         return (
           <group>
@@ -820,6 +963,9 @@ function PipeComponent({
     if (isCapture && !['iso', 'front'].includes(viewMode)) return null;
     if ((viewMode === 'iso' && !isCapture) || isGhost) return null;
 
+    // Use padded radius for industrial tank to avoid label clashing
+    const visualRadius = component.component_type === 'industrial-tank' ? (radiusOuter + 0.15) : radiusOuter;
+
     const invRotation = [
       -((component.rotation_x || 0) * Math.PI) / 180,
       -((component.rotation_y || 0) * Math.PI) / 180,
@@ -828,7 +974,7 @@ function PipeComponent({
 
     // --- ULTRA-MINIMALIST "ON TOP" LAYOUT ---
     const finalStaggerX = 0;
-    const finalStaggerY = radiusOuter + 0.4; // Hovering strictly above center
+    const finalStaggerY = visualRadius + 0.4; // Hovering strictly above center
 
     const isClashing = component._isClashing;
     const labelColor = isClashing ? "#ef4444" : (isCapture ? "#1e293b" : "#1d4ed8");
@@ -894,6 +1040,8 @@ function PipeComponent({
     );
   };
 
+  const currentDef = COMPONENT_DEFINITIONS[component.component_type || 'straight'];
+
   return (
     <group
       name={component.id}
@@ -901,6 +1049,9 @@ function PipeComponent({
       rotation={rotation}
       onClick={(e) => {
         e.stopPropagation();
+        // CONNECTION MODE PROTECTION:
+        // Do not allow selection clicks to fire if we are trying to connect sockets.
+        if (connectionMode) return;
         if (!isGhost) onSelect(e);
       }}
       onPointerOver={(e) => {
@@ -909,7 +1060,120 @@ function PipeComponent({
       }}
       onPointerOut={() => setIsHovered(false)}
     >
-      {renderGeometry()}
+      <group pointerEvents={connectionMode ? 'none' : 'auto'}>
+        {renderGeometry()}
+      </group>
+
+      {/* Selection Borders/Outlines */}
+      {isSelected && !isBlueprint && (
+        <Outlines thickness={0.015} color={darkMode ? "#fbbf24" : "#2563eb"} />
+      )}
+
+      {/* Socket Markers for Connection Mode */}
+      {connectionMode && !isGhost && currentDef && (
+        <group>
+          {(currentDef.sockets || []).map((socket, idx) => {
+            // Re-use dynamic position logic
+            const sPos = socket.position.clone();
+            if (component.component_type === 'straight' || component.component_type === 'vertical') {
+              sPos.y = (length / 2) * (socket.position.y > 0 ? 1 : -1);
+            } else if (component.component_type === 'industrial-tank') {
+              // Compute exact nozzle positions to match visual geometry
+              const od_val = component.properties?.od || 2.2;
+              const len_val = component.properties?.length || 4.0;
+              const vis_tankOD = od_val + 0.5;           // match +0.5 visual padding
+              const vis_r = vis_tankOD / 2;         // visual radius
+              const vis_body = len_val * 0.75;
+              const vis_cone = len_val * 0.25;
+              const vis_vScale = len_val / 4.0;
+
+              // socket order: TOP(0), BOTTOM(1), LEFT-HI(2), LEFT-LO(3), RIGHT-HI(4), RIGHT-LO(5)
+              if (idx === 0) {
+                // TOP — nozzle flange above dome apex
+                const domeCenter = (vis_cone / 2) + (vis_body / 2);
+                const domeApex = domeCenter + vis_r;
+                sPos.set(0, domeApex + vis_r * 0.6, 0);
+              } else if (idx === 1) {
+                // BOTTOM — nozzle flange below cone apex
+                const coneBottom = -(vis_body / 2) - (vis_cone / 2);
+                sPos.set(0, coneBottom - vis_r * 0.5, 0);
+              } else {
+                // SIDE nozzles — flange at tank surface radius, at scaled Y heights
+                const sideYs = [1.5 * vis_vScale, 0.5 * vis_vScale, 1.5 * vis_vScale, 0.5 * vis_vScale];
+                const sideXs = [-vis_r, -vis_r, vis_r, vis_r]; // left hi, left lo, right hi, right lo
+                const i = idx - 2;
+                sPos.set(sideXs[i], sideYs[i], 0);
+              }
+            } else {
+              sPos.multiplyScalar(radiusScale);
+            }
+            const isThisSelected = selectedSockets.some(s => s.componentId === component.id && s.socketIndex === idx);
+
+            // Offset marker slightly outward along socket direction
+            // so it protrudes past the component surface and is visible
+            // with depthTest=true (won't bleed through other objects)
+            const outsetDist = isThisSelected ? 0.26 : 0.20;
+            sPos.addScaledVector(socket.direction, outsetDist);
+
+            // Visibility strategy:
+            // - Hovered or selected component: large bright marker, always on top (depthTest=false)
+            // - Other components: tiny faint marker, properly occluded by geometry (depthTest=true)
+            const isActiveComponent = isHovered || selectedSockets.some(s => s.componentId === component.id);
+            const markerRadius = isThisSelected ? 0.26 : isActiveComponent ? 0.17 : 0.08;
+            const markerOpacity = isThisSelected ? 1.0 : isActiveComponent ? 0.90 : 0.15;
+            const markerDepth = !isActiveComponent; // true=occluded for background components
+            const markerOrder = isActiveComponent ? 999 : 0;
+            const markerEmissive = isThisSelected ? 5 : isActiveComponent ? 2.5 : 0.5;
+
+            return (
+              <mesh
+                key={idx}
+                position={sPos}
+                renderOrder={markerOrder}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  onSocketClick(component.id, idx);
+                }}
+                onPointerOver={(e) => {
+                  e.stopPropagation();
+                  document.body.style.cursor = 'pointer';
+                  setIsHovered(true);
+                }}
+                onPointerOut={() => {
+                  document.body.style.cursor = 'auto';
+                  setIsHovered(false);
+                }}
+              >
+                <sphereGeometry args={[markerRadius, 16, 16]} />
+                <meshStandardMaterial
+                  color={isThisSelected ? "#00ff88" : "#ff0055"}
+                  transparent
+                  opacity={markerOpacity}
+                  emissive={isThisSelected ? "#00ff88" : "#ff0055"}
+                  emissiveIntensity={markerEmissive}
+                  depthTest={markerDepth}
+                />
+              </mesh>
+            );
+          })}
+        </group>
+      )}
+
+      {/* Connection Indicator Labels */}
+      {connectionMode && selectedSockets.some(s => s.componentId === component.id) && (
+        <Billboard>
+          <Text
+            position={[0, radius + 0.5, 0]}
+            fontSize={0.2}
+            color="#10b981"
+            outlineColor="#000"
+            outlineWidth={0.02}
+          >
+            SELECTED
+          </Text>
+        </Billboard>
+      )}
+
       {isHovered && !isGhost && !performanceMode && (
         <Html distanceFactor={10} position={[0, radius + 0.3, 0]}>
           <div className="bg-white/90 backdrop-blur px-2 py-1 rounded shadow text-[10px] font-bold text-slate-800 pointer-events-none whitespace-nowrap">

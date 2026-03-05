@@ -15,6 +15,8 @@ export const MATERIALS = {
     hdpe: { id: 'hdpe', name: 'HDPE (Black)', density: 950, color: '#1e293b' },
     sq_steel: { id: 'sq_steel', name: 'Square Steel (SHS)', density: 7850, color: '#64748b' },
     sq_aluminium: { id: 'sq_aluminium', name: 'Square Aluminium (SAS)', density: 2700, color: '#cbd5e1' },
+    industrial_yellow: { id: 'industrial_yellow', name: 'Industrial Tank Yellow', density: 7850, color: '#fbbf24' },
+    wall_concrete: { id: 'wall_concrete', name: 'Reference Wall', density: 0, color: '#94a3b8' },
 };
 
 export const COMPONENT_DEFINITIONS = {
@@ -227,6 +229,33 @@ export const COMPONENT_DEFINITIONS = {
         sockets: [
             { position: new THREE.Vector3(0, 1, 0), direction: new THREE.Vector3(0, 1, 0) }, // Tip
             { position: new THREE.Vector3(0, 0, 0), direction: new THREE.Vector3(0, -1, 0) }, // Base (center)
+        ],
+    },
+    'industrial-tank': {
+        type: 'industrial-tank',
+        weightPerUnit: 45.0,
+        standardWeight: 'Standard HP',
+        defaultOD: 2.2,
+        defaultWT: 0.08,
+        defaultMaterial: 'industrial_yellow',
+        sockets: [
+            { position: new THREE.Vector3(0, 3.5, 0), direction: new THREE.Vector3(0, 1, 0) }, // TOP
+            { position: new THREE.Vector3(0, -2.0, 0), direction: new THREE.Vector3(0, -1, 0) }, // BOTTOM
+            { position: new THREE.Vector3(-1.1, 1.5, 0), direction: new THREE.Vector3(-1, 0, 0) }, // LEFT TOP
+            { position: new THREE.Vector3(-1.1, 0.5, 0), direction: new THREE.Vector3(-1, 0, 0) }, // LEFT BOTTOM
+            { position: new THREE.Vector3(1.1, 1.5, 0), direction: new THREE.Vector3(1, 0, 0) }, // RIGHT TOP
+            { position: new THREE.Vector3(1.1, 0.5, 0), direction: new THREE.Vector3(1, 0, 0) }, // RIGHT BOTTOM
+        ],
+    },
+    wall: {
+        type: 'wall',
+        weightFactor: 0,
+        defaultMaterial: 'wall_concrete',
+        defaultOD: 10, // Width
+        defaultWT: 0.2, // Thickness
+        defaultLength: 10, // Height
+        sockets: [
+            { position: new THREE.Vector3(0, 0, 0), direction: new THREE.Vector3(0, 0, 1) },
         ],
     },
 };

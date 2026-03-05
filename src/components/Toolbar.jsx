@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Save, Plus, Info, Sun, Moon, List, Undo, Redo, Lock, Unlock, ChevronDown, FileText, Table, MousePointer2, CheckCircle2, RotateCw, Zap } from 'lucide-react';
+import { Save, Plus, Info, Sun, Moon, List, Undo, Redo, Lock, Unlock, ChevronDown, FileText, Table, MousePointer2, CheckCircle2, RotateCw, Zap, Plug } from 'lucide-react';
 import { formatIndianNumber } from '../utils/pricing';
 
 export default function Toolbar({
@@ -28,7 +28,9 @@ export default function Toolbar({
   blueprintMode,
   onToggleBlueprint,
   performanceMode,
-  onTogglePerformance
+  onTogglePerformance,
+  connectionMode,
+  onToggleConnection
 }) {
   return (
     <div className={`transition-colors duration-300 backdrop-blur-xl border-b flex items-center justify-between px-4 lg:px-6 z-40 shadow-sm ${isMobile ? 'h-20 lg:h-24' : 'h-24'} ${darkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white/70 border-blue-100/50'}`}>
@@ -145,6 +147,20 @@ export default function Toolbar({
             title={isLocked ? "Unlock View" : "Lock View"}
           >
             {isLocked ? <Lock size={18} /> : <Unlock size={18} />}
+          </button>
+          <button
+            onClick={onToggleConnection}
+            className={`p-2 rounded-lg transition-all active:scale-95 ${connectionMode
+              ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/20'
+              : (darkMode ? 'text-slate-200 hover:bg-slate-800' : 'text-slate-600 hover:bg-blue-50')
+              } ${blueprintMode ? 'opacity-20 cursor-not-allowed' : ''}`}
+            title={connectionMode ? "Cancel Connection" : "Socket-to-Socket Connection"}
+            disabled={blueprintMode}
+          >
+            <div className="flex items-center gap-1.5">
+              <Plug size={18} className={connectionMode ? "rotate-90 transition-transform text-white" : "transition-transform"} />
+              {connectionMode && <span className="text-[9px] font-black uppercase tracking-tight text-white animate-pulse">Mode Active</span>}
+            </div>
           </button>
           <button
             onClick={onUndo}

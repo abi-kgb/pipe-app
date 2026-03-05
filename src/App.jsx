@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import * as THREE from 'three';
+import { findSnapPoint, findSnapForTransform, checkIntersection, calculateManualConnection } from './utils/snapping';
 import Scene3D from './components/Scene3D';
 import ComponentLibrary from './components/ComponentLibrary';
 import Toolbar from './components/Toolbar';
@@ -12,6 +13,7 @@ import { getComponentTag } from './utils/tagging';
 import * as XLSX from 'xlsx';
 import { calculateComponentMetrics, calculateComponentCost } from './utils/pricing';
 import AuthPage from './components/AuthPage';
+import { COMPONENT_DEFINITIONS } from './config/componentDefinitions';
 
 function App() {
   const [components, setComponents] = useState([]);
@@ -31,6 +33,9 @@ function App() {
   const [performanceMode, setPerformanceMode] = useState(() => {
     return localStorage.getItem('pipe3d_perf_mode') === 'true' || window.innerWidth < 800;
   });
+  const [connectionMode, setConnectionMode] = useState(false);
+  const [selectedSockets, setSelectedSockets] = useState([]); // [{ componentId, socketIndex }]
+  const [snapPivot, setSnapPivot] = useState(null); // { id: string, worldPos: Vector3, socketIndex: number, isAssembly: boolean }
   const sceneRef = useRef(null); // ref to Scene3D for export control
   const lastPlacementTime = useRef(0);
   const [darkMode, setDarkMode] = useState(() => {
@@ -117,7 +122,7 @@ function App() {
     if (components.length === 0) return;
 
     const newEntry = {
-      id: `hist_${Date.now()}`,
+      id: `hist_${Date.now()} `,
       name: designName,
       components: JSON.parse(JSON.stringify(components)), // Deep clone
       timestamp: Date.now()
@@ -156,6 +161,10 @@ function App() {
   }, []);
 
   const handleSelectComponent = useCallback((id, e) => {
+    // If we are in connection mode, we don't want to change selection.
+    // We only want to handle socket clicks.
+    if (connectionMode) return;
+
     // console.log('Selection event:', { id, multiMode: multiSelectMode, hasEvent: !!e });
     if (!id) {
       setSelectedIds([]);
@@ -174,7 +183,7 @@ function App() {
     }
 
     let idsToSelect = [id];
-    if (targetComp.assemblyId) {
+    if (targetComp.assemblyId && !connectionMode) {
       idsToSelect = components
         .filter(c => c.assemblyId === targetComp.assemblyId)
         .map(c => c.id);
@@ -192,7 +201,7 @@ function App() {
     } else {
       setSelectedIds(idsToSelect);
     }
-  }, [multiSelectMode, components, handleCancelPlacement]);
+  }, [multiSelectMode, components, handleCancelPlacement, connectionMode]);
   const handleBatchSelect = useCallback((ids, e) => {
     const isMulti = multiSelectMode || (e && (e.shiftKey || e.ctrlKey || e.metaKey));
 
@@ -293,7 +302,7 @@ function App() {
 
     // ASSEMBLY MODE: If the template has multiple parts
     if (placingTemplate?.isAssembly && placingTemplate.parts) {
-      const assemblyId = `ass_${Date.now()}`;
+      const assemblyId = `ass_${Date.now()} `;
 
       // Calculate assembly rotation (from snap)
       const assemblyQuat = new THREE.Quaternion().setFromEuler(
@@ -323,7 +332,7 @@ function App() {
           return {
             ...p,
             properties: { ...p.properties }, // Shallow clone properties
-            id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${Math.random()}`,
+            id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${Math.random()} `,
             assemblyId,
             position_x: position[0] + offsetVec.x,
             position_y: position[1] + offsetVec.y,
@@ -349,8 +358,24 @@ function App() {
       ...properties
     };
 
+    // Check for intersection one last time before placing
+    const isIntersecting = checkIntersection(
+      new THREE.Vector3(...position),
+      new THREE.Euler(rotation[0] * (Math.PI / 180), rotation[1] * (Math.PI / 180), rotation[2] * (Math.PI / 180)),
+      placingType,
+      finalProperties,
+      components
+    );
+
+    if (isIntersecting) {
+      console.warn('Pipe3D: Placement blocked due to intersection.');
+      // Optional: Trigger a UI toast/shake if available. 
+      // For now, blocking it is the safest "fix".
+      return;
+    }
+
     const newComponent = {
-      id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)} `,
       component_type: placingType,
       position_x: position[0],
       position_y: position[1],
@@ -374,22 +399,123 @@ function App() {
   }, [placingType, placingTemplate]);
 
 
-  const handleUpdateComponent = useCallback((updatedComponent) => {
+  const handleUpdateComponent = useCallback((updatedComp) => {
     setComponents(prev => {
-      const next = prev.map(comp => (comp.id === updatedComponent.id ? updatedComponent : comp));
+      // PIVOT-AWARE ROTATION COMPENSATION
+      let compToUse = updatedComp;
+      if (snapPivot && updatedComp.id === snapPivot.id && transformMode === 'rotate') {
+        const oldComp = prev.find(c => c.id === updatedComp.id);
+        if (oldComp) {
+          const def = COMPONENT_DEFINITIONS[oldComp.component_type];
+          if (def && def.sockets[snapPivot.socketIndex]) {
+            let socketLocalPos = def.sockets[snapPivot.socketIndex].position.clone();
+            if (oldComp.component_type === 'industrial-tank') {
+              const hScale = ((oldComp.properties?.od || 2.2) + 0.3) / 2.2;
+              const vScale = (oldComp.properties?.length || 4.0) / 4.0;
+              socketLocalPos.x *= hScale;
+              socketLocalPos.z *= hScale;
+              socketLocalPos.y *= vScale;
+            } else {
+              socketLocalPos.multiplyScalar(oldComp.properties?.radiusScale || 1);
+            }
+
+            // Calculate where the socket WOULD BE with the new rotation
+            const newQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+              updatedComp.rotation_x * (Math.PI / 180),
+              updatedComp.rotation_y * (Math.PI / 180),
+              updatedComp.rotation_z * (Math.PI / 180)
+            ));
+            const newSocketWorldOffset = socketLocalPos.clone().applyQuaternion(newQuat);
+
+            // New position = pivotWorldPos - newSocketWorldOffset
+            const newPos = snapPivot.worldPos.clone().sub(newSocketWorldOffset);
+
+            compToUse = {
+              ...updatedComp,
+              position_x: newPos.x,
+              position_y: newPos.y,
+              position_z: newPos.z
+            };
+          }
+        }
+      } else if (snapPivot && updatedComp.id === snapPivot.id && transformMode === 'translate') {
+        // Clear pivot if they manually move it away
+        setSnapPivot(null);
+      }
+
+      const next = prev.map(comp => (comp.id === compToUse.id ? compToUse : comp));
       saveToHistory(next);
       return next;
     });
-  }, [saveToHistory]);
+  }, [saveToHistory, snapPivot, transformMode]);
 
   const handleUpdateComponents = useCallback((updatedComponents) => {
     setComponents(prev => {
-      const updates = new Map(updatedComponents.map(c => [c.id, c]));
-      const next = prev.map(comp => updates.has(comp.id) ? updates.get(comp.id) : comp);
+      let finalUpdates = updatedComponents;
+
+      // ASSEMBLY PIVOT COMPENSATION
+      if (snapPivot && transformMode === 'rotate') {
+        const leadUpdate = updatedComponents.find(u => u.id === snapPivot.id);
+        if (leadUpdate) {
+          const oldLead = prev.find(c => c.id === leadUpdate.id);
+          if (oldLead) {
+            const def = COMPONENT_DEFINITIONS[oldLead.component_type];
+            if (def && def.sockets[snapPivot.socketIndex]) {
+              let socketLocalPos = def.sockets[snapPivot.socketIndex].position.clone();
+              if (oldLead.component_type === 'industrial-tank') {
+                const hScale = ((oldLead.properties?.od || 2.2) + 0.3) / 2.2;
+                const vScale = (oldLead.properties?.length || 4.0) / 4.0;
+                socketLocalPos.x *= hScale;
+                socketLocalPos.z *= hScale;
+                socketLocalPos.y *= vScale;
+              } else {
+                socketLocalPos.multiplyScalar(oldLead.properties?.radiusScale || 1);
+              }
+
+              const newQuatTarget = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+                leadUpdate.rotation_x * (Math.PI / 180),
+                leadUpdate.rotation_y * (Math.PI / 180),
+                leadUpdate.rotation_z * (Math.PI / 180)
+              ));
+              const oldQuatTarget = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+                oldLead.rotation_x * (Math.PI / 180),
+                oldLead.rotation_y * (Math.PI / 180),
+                oldLead.rotation_z * (Math.PI / 180)
+              ));
+
+              const relRotation = new THREE.Quaternion().multiplyQuaternions(newQuatTarget, oldQuatTarget.clone().invert());
+              const pivotWorld = snapPivot.worldPos;
+
+              finalUpdates = updatedComponents.map(c => {
+                const oldC = prev.find(pc => pc.id === c.id);
+                if (!oldC) return c;
+
+                const oldPosC = new THREE.Vector3(oldC.position_x, oldC.position_y, oldC.position_z);
+                const relPos = oldPosC.clone().sub(pivotWorld);
+                relPos.applyQuaternion(relRotation);
+                const newPosC = pivotWorld.clone().add(relPos);
+
+                return {
+                  ...c,
+                  position_x: newPosC.x,
+                  position_y: newPosC.y,
+                  position_z: newPosC.z
+                };
+              });
+            }
+          }
+        }
+      } else if (snapPivot && transformMode === 'translate') {
+        const leadUpdate = updatedComponents.find(u => u.id === snapPivot.id);
+        if (leadUpdate) setSnapPivot(null);
+      }
+
+      const updatesMap = new Map(finalUpdates.map(c => [c.id, c]));
+      const next = prev.map(comp => updatesMap.has(comp.id) ? updatesMap.get(comp.id) : comp);
       saveToHistory(next);
       return next;
     });
-  }, [saveToHistory]);
+  }, [saveToHistory, snapPivot, transformMode]);
 
   const handleDeleteComponents = useCallback((ids) => {
     setComponents(prev => {
@@ -416,7 +542,7 @@ function App() {
 
   const handleGroupComponents = useCallback((ids) => {
     if (ids.length < 2) return;
-    const assemblyId = `ass_${Date.now()}`;
+    const assemblyId = `ass_${Date.now()} `;
     setComponents(prev => {
       const next = prev.map(comp => {
         if (ids.includes(comp.id)) {
@@ -429,6 +555,113 @@ function App() {
     });
   }, [saveToHistory]);
 
+  const handleSocketClick = useCallback((componentId, socketIndex) => {
+    console.log('Socket Clicked:', { componentId, socketIndex });
+    setSelectedSockets(prev => {
+      const next = [...prev, { componentId, socketIndex }];
+
+      if (next.length === 2) {
+        // PERFORM CONNECTION
+        const [target, source] = next;
+
+        if (target.componentId === source.componentId) {
+          alert("Cannot connect a component to itself!");
+          return [];
+        }
+
+        setComponents(currentComponents => {
+          const compA = currentComponents.find(c => c.id === target.componentId);
+          const compB = currentComponents.find(c => c.id === source.componentId);
+
+          if (!compA || !compB) return currentComponents;
+
+          const result = calculateManualConnection(compA, target.socketIndex, compB, source.socketIndex);
+
+          if (result) {
+            // --- ASSEMBLY SNAP LOGIC ---
+            // If the source component (compB) is part of an assembly, 
+            // the entire assembly should move and rotate as a single unit.
+
+            const assemblyId = compB.assemblyId;
+
+            // 1. Calculate the relative transform (Matrix4) for the relocation
+            const oldMatrixB = new THREE.Matrix4().compose(
+              new THREE.Vector3(compB.position_x, compB.position_y, compB.position_z),
+              new THREE.Quaternion().setFromEuler(new THREE.Euler(
+                (compB.rotation_x || 0) * (Math.PI / 180),
+                (compB.rotation_y || 0) * (Math.PI / 180),
+                (compB.rotation_z || 0) * (Math.PI / 180)
+              )),
+              new THREE.Vector3(1, 1, 1)
+            );
+
+            const newMatrixB = new THREE.Matrix4().compose(
+              result.position,
+              new THREE.Quaternion().setFromEuler(result.rotation),
+              new THREE.Vector3(1, 1, 1)
+            );
+
+            const relTransform = new THREE.Matrix4().multiplyMatrices(newMatrixB, oldMatrixB.invert());
+
+            const updatedComponents = currentComponents.map(c => {
+              // Apply transform if it's the source or part of the same assembly
+              const shouldMove = (c.id === source.componentId) || (assemblyId && c.assemblyId === assemblyId);
+
+              if (shouldMove) {
+                const oldMatrixC = new THREE.Matrix4().compose(
+                  new THREE.Vector3(c.position_x, c.position_y, c.position_z),
+                  new THREE.Quaternion().setFromEuler(new THREE.Euler(
+                    (c.rotation_x || 0) * (Math.PI / 180),
+                    (c.rotation_y || 0) * (Math.PI / 180),
+                    (c.rotation_z || 0) * (Math.PI / 180)
+                  )),
+                  new THREE.Vector3(1, 1, 1)
+                );
+
+                const newMatrixC = new THREE.Matrix4().multiplyMatrices(relTransform, oldMatrixC);
+
+                const finalPos = new THREE.Vector3();
+                const finalQuat = new THREE.Quaternion();
+                const finalScale = new THREE.Vector3();
+                newMatrixC.decompose(finalPos, finalQuat, finalScale);
+                const finalRot = new THREE.Euler().setFromQuaternion(finalQuat);
+
+                return {
+                  ...c,
+                  position_x: finalPos.x,
+                  position_y: finalPos.y,
+                  position_z: finalPos.z,
+                  rotation_x: finalRot.x * (180 / Math.PI),
+                  rotation_y: finalRot.y * (180 / Math.PI),
+                  rotation_z: finalRot.z * (180 / Math.PI),
+                };
+              }
+              return c;
+            });
+
+            saveToHistory(updatedComponents);
+
+            // 2. Set Snap Pivot for the source (so subsequent rotations pivot around this point)
+            setSnapPivot({
+              id: source.componentId,
+              worldPos: result.socketWorldPos,
+              socketIndex: source.socketIndex,
+              isAssembly: !!assemblyId,
+              assemblyId: assemblyId
+            });
+
+            return updatedComponents;
+          }
+          return currentComponents;
+        });
+
+        setConnectionMode(false);
+        return [];
+      }
+      return next;
+    });
+  }, [saveToHistory]);
+
   const handleDuplicateComponents = useCallback((ids) => {
     if (ids.length === 0) return;
 
@@ -437,7 +670,7 @@ function App() {
       const newClones = selectedOnes.map(original => ({
         ...original,
         properties: { ...original.properties }, // Shallow clone properties
-        id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)} `,
         // Offset the clone slightly so it doesn't overlap perfectly
         position_x: original.position_x + 0.5,
         position_y: original.position_y,
@@ -460,7 +693,7 @@ function App() {
 
     const name = prompt(
       ids.length > 1 ? "Name your assembly:" : "Name your custom component:",
-      ids.length > 1 ? "New Assembly" : `Custom ${selectedOnes[0].component_type}`
+      ids.length > 1 ? "New Assembly" : `Custom ${selectedOnes[0].component_type} `
     );
     if (!name) return;
 
@@ -508,7 +741,7 @@ function App() {
       });
 
       newPart = {
-        id: `user_ass_${Date.now()}`,
+        id: `user_ass_${Date.now()} `,
         label: name,
         type: 'assembly',
         isAssembly: true,
@@ -518,7 +751,7 @@ function App() {
     } else {
       // SINGLE PART CAPTURE
       newPart = {
-        id: `user_${Date.now()}`,
+        id: `user_${Date.now()} `,
         label: name,
         type: selectedOnes[0].component_type,
         properties: { ...selectedOnes[0].properties },
@@ -537,21 +770,23 @@ function App() {
   // Keyboard support for common engineering shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
+      if (!e || typeof e.key !== 'string') return;
+      const key = e.key.toLowerCase();
       // 1. ESC to clear selection/placement
-      if (e.key === 'Escape') {
+      if (key === 'escape') {
         handleCancelPlacement();
         setSelectedIds([]);
       }
 
       // 2. DELETE / BACKSPACE to remove selected parts
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0) {
+      if ((key === 'delete' || key === 'backspace') && selectedIds.length > 0) {
         // Prevent deleting if user is typing in an input
         if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
         handleDeleteComponents(selectedIds);
       }
 
       // 3. CTRL + D to Duplicate
-      if (e.ctrlKey && e.key.toLowerCase() === 'd') {
+      if (e.ctrlKey && key === 'd') {
         e.preventDefault();
         if (selectedIds.length > 0) {
           handleDuplicateComponents(selectedIds);
@@ -559,52 +794,52 @@ function App() {
       }
 
       // 4. CTRL + Z for Undo
-      if (e.ctrlKey && e.key.toLowerCase() === 'z') {
+      if (e.ctrlKey && key === 'z') {
         e.preventDefault();
         handleUndo();
       }
 
       // 5. CTRL + Y or CTRL + SHIFT + Z for Redo
-      if (e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+      if (e.ctrlKey && (key === 'y' || (e.shiftKey && key === 'z'))) {
         e.preventDefault();
         handleRedo();
       }
 
       // 5b. U to Ungroup
-      if (e.key.toLowerCase() === 'u' && selectedIds.length > 0) {
+      if (key === 'u' && selectedIds.length > 0) {
         if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
         handleUngroupComponents(selectedIds);
       }
 
       // 5c. G to Group
-      if (e.key.toLowerCase() === 'g' && selectedIds.length > 1) {
+      if (key === 'g' && selectedIds.length > 1) {
         if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
         handleGroupComponents(selectedIds);
       }
 
       // 6. Transform Mode (T for Translate, R for Rotate)
-      if (e.key.toLowerCase() === 't') {
+      if (key === 't') {
         setTransformMode('translate');
-      } else if (e.key.toLowerCase() === 'r') {
+      } else if (key === 'r') {
         setTransformMode('rotate');
       }
 
-      // 7. Clipboard (CTRL + C, CTRL + V)
-      if (e.ctrlKey && e.key.toLowerCase() === 'c' && selectedIds.length > 0) {
+      // 7. CTRL + C to Copy
+      if (e.ctrlKey && key === 'c' && selectedIds.length > 0) {
         const component = components.find(c => c.id === selectedIds[0]);
         if (component) {
           setClipboard(component);
-          console.log('Copied to clipboard:', component);
         }
       }
 
-      if (e.ctrlKey && e.key.toLowerCase() === 'v' && clipboard) {
+      // 8. CTRL + V to Paste
+      if (e.ctrlKey && key === 'v' && clipboard) {
         const newComponent = {
           ...clipboard,
           id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          position_x: clipboard.position_x + 2,
-          position_y: clipboard.position_y,
-          position_z: clipboard.position_z,
+          position_x: (clipboard.position_x || 0) + 2,
+          position_y: clipboard.position_y || 0,
+          position_z: clipboard.position_z || 0,
           connections: []
         };
         setComponents(prev => {
@@ -613,12 +848,45 @@ function App() {
           return next;
         });
         setSelectedIds([newComponent.id]);
-        console.log('Pasted:', newComponent);
+      }
+
+      // 9. ARROW KEYS to nudge selected parts (Plan Movement)
+      const moveKeys = ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'pageup', 'pagedown', 'w', 's', 'a', 'd'];
+      if (moveKeys.includes(key) && selectedIds.length > 0 && !isLocked) {
+        if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+
+        e.preventDefault();
+
+        let step = 0.5; // Default nudge half meter
+        if (e.shiftKey) step = 2.0; // Large step
+        if (e.ctrlKey) step = 0.05; // Precision step
+
+        let dx = 0, dy = 0, dz = 0;
+        // Intuitive mapping: Arrow Up/Down for Vertical (Elevation)
+        if (key === 'arrowup') dy = step;
+        if (key === 'arrowdown') dy = -step;
+        if (key === 'arrowleft' || key === 'a') dx = -step;
+        if (key === 'arrowright' || key === 'd') dx = step;
+
+        // Depth/Forward-Backward mapping
+        if (key === 'pageup' || key === 'w') dz = -step;
+        if (key === 'pagedown' || key === 's') dz = step;
+
+        const updated = components
+          .filter(c => selectedIds.includes(c.id))
+          .map(c => ({
+            ...c,
+            position_x: (c.position_x || 0) + dx,
+            position_y: (c.position_y || 0) + dy,
+            position_z: (c.position_z || 0) + dz,
+          }));
+
+        handleUpdateComponents(updated);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleCancelPlacement, selectedIds, handleDeleteComponents, handleDuplicateComponents, handleUndo, handleRedo, components, clipboard, saveToHistory]);
+  }, [handleCancelPlacement, selectedIds, handleDeleteComponents, handleDuplicateComponents, handleUndo, handleRedo, components, clipboard, saveToHistory, isLocked, handleUpdateComponents]);
 
 
   const handleExportExcel = useCallback(() => {
@@ -656,8 +924,8 @@ function App() {
     const max_width = bomData.reduce((w, r) => Math.max(w, ...Object.values(r).map(v => v.toString().length)), 10);
     worksheet['!cols'] = Object.keys(bomData[0]).map(() => ({ wch: max_width + 2 }));
 
-    const safeName = designName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    XLSX.writeFile(workbook, `${safeName}_bom.xlsx`);
+    const safeName = (designName || 'Untitled').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    XLSX.writeFile(workbook, `${safeName} _bom.xlsx`);
     handleSaveToHistory();
   }, [components, designName, handleSaveToHistory]);
 
@@ -710,10 +978,10 @@ function App() {
         pdf.line(5, H - 13, W - 5, H - 13);
 
         pdf.setTextColor(...tealAccent); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(7.5);
-        pdf.text(`PROJECT: ${designName.toUpperCase()}`, 10, H - 7.5);
+        pdf.text(`PROJECT: ${designName.toUpperCase()} `, 10, H - 7.5);
         pdf.setFont('helvetica', 'normal');
         pdf.text(label.toUpperCase(), W / 2, H - 7.5, { align: 'center' });
-        pdf.text(`DATE: ${dateStr}  |  REV: 01-A`, W - 10, H - 7.5, { align: 'right' });
+        pdf.text(`DATE: ${dateStr}  | REV: 01 - A`, W - 10, H - 7.5, { align: 'right' });
 
         // ── Outer border ────────────────────────────────────────────────────
         pdf.setDrawColor(...tealAccent); pdf.setLineWidth(1.2);
@@ -787,8 +1055,8 @@ function App() {
           tag,
           type.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
           material.toUpperCase(),
-          `Ø${od.toFixed(2)}m`,
-          ['straight', 'vertical', 'tank'].includes(type) ? `${len.toFixed(2)}m` : '-'
+          `Ø${od.toFixed(2)} m`,
+          ['straight', 'vertical', 'tank'].includes(type) ? `${len.toFixed(2)} m` : '-'
         ];
       });
 
@@ -822,14 +1090,14 @@ function App() {
       pdf.setDrawColor(8, 145, 178); pdf.setLineWidth(0.4);
       pdf.line(5, H - 13, W - 5, H - 13);
       pdf.setTextColor(8, 145, 178); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(7.5);
-      pdf.text(`PROJECT: ${designName.toUpperCase()}`, 10, H - 7.5);
-      pdf.text(`TOTAL COMPONENTS: ${components.length}`, W / 2, H - 7.5, { align: 'center' });
-      pdf.text(`DATE: ${dateStr}  |  REV: 01-A`, W - 10, H - 7.5, { align: 'right' });
+      pdf.text(`PROJECT: ${designName.toUpperCase()} `, 10, H - 7.5);
+      pdf.text(`TOTAL COMPONENTS: ${components.length} `, W / 2, H - 7.5, { align: 'center' });
+      pdf.text(`DATE: ${dateStr}  | REV: 01 - A`, W - 10, H - 7.5, { align: 'right' });
 
       pdf.setDrawColor(8, 145, 178); pdf.setLineWidth(1.2);
       pdf.rect(5, 5, W - 10, H - 10);
 
-      pdf.save(`${designName.replace(/ /g, '_')}_Blueprint.pdf`);
+      pdf.save(`${designName.replace(/ /g, '_')} _Blueprint.pdf`);
       handleSaveToHistory();
       setIsCapturing(false);
 
@@ -846,7 +1114,7 @@ function App() {
   }
 
   return (
-    <div className={`h-screen flex flex-col transition-colors duration-300 ${darkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-[#f0f9ff] text-slate-900'} selection:bg-blue-200`}>
+    <div className={`h-screen flex flex-col transition-colors duration-300 ${darkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-[#f0f9ff] text-slate-900'} selection:bg-blue-200 ${connectionMode ? 'cursor-crosshair' : ''}`}>
       <Toolbar
         designName={designName}
         onRename={setDesignName}
@@ -874,6 +1142,12 @@ function App() {
         onLogout={() => setUser(null)}
         performanceMode={performanceMode}
         onTogglePerformance={() => setPerformanceMode(!performanceMode)}
+        connectionMode={connectionMode}
+        onToggleConnection={() => {
+          setConnectionMode(!connectionMode);
+          setSelectedSockets([]);
+          setSnapPivot(null);
+        }}
       />
 
       {showMaterials && (
@@ -913,6 +1187,9 @@ function App() {
                   isLocked={isLocked}
                   isCapturing={isCapturing}
                   performanceMode={performanceMode}
+                  connectionMode={connectionMode}
+                  selectedSockets={selectedSockets}
+                  onSocketClick={handleSocketClick}
                 />
               </div>
 
@@ -924,7 +1201,7 @@ function App() {
                 >
                   <div
                     className="w-full max-w-sm h-full bg-white shadow-2xl animate-in slide-in-from-left duration-300"
-                    onClick={e => e.stopPropagation()}
+                    onClick={e => e.stopPropagation()} // Keep onClick for the library div to prevent closing when interacting with library content
                   >
                     <ComponentLibrary
                       components={components}
@@ -1015,6 +1292,9 @@ function App() {
                     isLocked={isLocked}
                     isCapturing={isCapturing}
                     performanceMode={performanceMode}
+                    connectionMode={connectionMode}
+                    selectedSockets={selectedSockets}
+                    onSocketClick={handleSocketClick}
                   />
                 </div>
               }

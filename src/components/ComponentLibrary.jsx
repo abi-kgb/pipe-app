@@ -23,6 +23,8 @@ const LIBRARY_PARTS = [
   { type: 'cylinder', label: 'Cylinder Solid', icon: <Cylinder size={20} />, color: '#6366f1' },
   { type: 'cube', label: 'Cube Solid', icon: <Cuboid size={20} />, color: '#8b5cf6' },
   { type: 'cone', label: 'Cone Solid', icon: <Cone size={20} />, color: '#d946ef' },
+  { type: 'industrial-tank', label: 'Industrial Tank', icon: <Package size={20} />, color: '#fbbf24' },
+  { type: 'wall', label: 'Reference Wall', icon: <Square size={20} />, color: '#94a3b8' },
 ];
 
 export default function ComponentLibrary({
@@ -227,10 +229,10 @@ export default function ComponentLibrary({
               <p className={`text-[10px] uppercase font-black tracking-widest text-center opacity-80 transition-colors ${darkMode ? 'text-slate-500' : 'text-blue-400'}`}>Part Specifications</p>
 
               {/* Length Control */}
-              {selectedComponents.some(c => ['straight', 'vertical', 'tank'].includes(c.component_type)) && (
+              {selectedComponents.some(c => ['straight', 'vertical', 'tank', 'industrial-tank', 'cylinder', 'wall'].includes(c.component_type)) && (
                 <div className="space-y-1.5">
                   <div className={`flex justify-between items-center text-[10px] font-bold uppercase px-1 transition-colors ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                    <span>Length / Height</span>
+                    <span>{selectedComponents[0]?.component_type === 'wall' ? 'Wall Height' : 'Length / Height'}</span>
                     <div className="flex items-center gap-0.5">
                       <input
                         type="number"
@@ -246,7 +248,7 @@ export default function ComponentLibrary({
                   <input
                     type="range"
                     min="0.5"
-                    max="10"
+                    max={selectedComponents[0]?.component_type === 'wall' ? "100" : "10"}
                     step="0.1"
                     value={selectedComponents[0].properties?.length || 2}
                     onChange={(e) => updateProperty('length', parseFloat(e.target.value))}
@@ -258,7 +260,7 @@ export default function ComponentLibrary({
               {/* Outside Diameter (OD) */}
               <div className="space-y-1.5">
                 <div className={`flex justify-between items-center text-[10px] font-bold uppercase px-1 transition-colors ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                  <span>Outside Diameter (OD)</span>
+                  <span>{selectedComponents[0]?.component_type === 'wall' ? 'Wall Width (OD)' : 'Outside Diameter (OD)'}</span>
                   <div className="flex items-center gap-0.5">
                     <span className="text-blue-600 font-black">Ø</span>
                     <input
@@ -289,8 +291,12 @@ export default function ComponentLibrary({
                 </div>
                 <input
                   type="range"
-                  min="0.1"
-                  max="1.5"
+                  className={`w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-600 transition-colors ${darkMode ? 'bg-slate-700' : 'bg-slate-100'}`}
+                  max={
+                    selectedComponents[0]?.component_type === 'industrial-tank' ? "3" :
+                      selectedComponents[0]?.component_type === 'wall' ? "100" : "1.5"
+                  }
+                  min={selectedComponents[0]?.component_type === 'industrial-tank' ? "0.5" : "0.1"}
                   step="0.01"
                   value={selectedComponents[0].properties?.od || (0.30 * (selectedComponents[0].properties?.radiusScale || 1))}
                   onChange={(e) => {
@@ -320,7 +326,6 @@ export default function ComponentLibrary({
                       });
                     }
                   }}
-                  className={`w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-blue-600 transition-colors ${darkMode ? 'bg-slate-700' : 'bg-slate-100'}`}
                 />
               </div>
 
@@ -358,7 +363,7 @@ export default function ComponentLibrary({
                 <input
                   type="range"
                   min="0.005"
-                  max="0.1"
+                  max={selectedComponents[0]?.component_type === 'wall' ? 1.0 : 0.1}
                   step="0.001"
                   value={selectedComponents[0].properties?.wallThickness || 0.01}
                   onChange={(e) => {
