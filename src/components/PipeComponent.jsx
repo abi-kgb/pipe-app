@@ -1,5 +1,5 @@
 import { useRef, useState, memo, useMemo } from 'react';
-import { Html, Text, Edges, Billboard, Outlines } from '@react-three/drei';
+import { Billboard, Text, Edges, Outlines } from '@react-three/drei';
 import * as THREE from 'three';
 import { MATERIALS, COMPONENT_DEFINITIONS } from '../config/componentDefinitions';
 
@@ -19,8 +19,6 @@ function PipeComponent({
   tag = '',
   darkMode = false,
   isCapture = false,
-  blueprintMode = false,
-  performanceMode = false,
   connectionMode = false,
   selectedSockets = [],
   onSocketClick,
@@ -28,7 +26,7 @@ function PipeComponent({
   const meshRef = useRef(null);
   const [isHovered, setIsHovered] = useState(false);
 
-  const isBlueprint = isCapture || blueprintMode;
+  const isBlueprint = isCapture;
   const is2D = viewMode !== 'iso';
   const radiusScale = component.properties?.radiusScale ?? 1;
   const length = component.properties?.length ?? 2;
@@ -118,7 +116,7 @@ function PipeComponent({
         roughness={isSelected ? 0.2 : roughness}
         emissive={isSelected ? '#1d4ed8' : '#000000'}
         emissiveIntensity={isSelected ? 0.2 : 0}
-        envMapIntensity={(isCapture || performanceMode) ? 0 : (isPlastic ? 0.5 : 1.5)}
+        envMapIntensity={isCapture ? 0 : (isPlastic ? 0.5 : 1.5)}
       />
     );
   };
@@ -224,7 +222,7 @@ function PipeComponent({
 
     if (isSquare && (type === 'straight' || type === 'vertical')) {
       return (
-        <group>
+        <group position={[0, length / 2, 0]}>
           <Hitbox type={type} radius={radiusOuter} length={length} />
           <SqArm len={length} />
         </group>
@@ -329,10 +327,10 @@ function PipeComponent({
       case 'straight':
       case 'vertical':
         return (
-          <group>
+          <group position={[0, length / 2, 0]}>
             <Hitbox type={type} radius={radiusOuter} length={length} />
             {/* Center Axis - Clean length to avoid grid intersection */}
-            {!isBlueprint && !performanceMode && !isGhost && (
+            {!isBlueprint && !isGhost && (
               <mesh>
                 <cylinderGeometry args={[0.012, 0.012, length, 8]} />
                 <meshBasicMaterial color={highlightColor} transparent opacity={isSelected ? 0.8 : 0.4} />
@@ -352,7 +350,7 @@ function PipeComponent({
               )}
             </mesh>
             {/* Visual Center Point */}
-            {!isGhost && !isBlueprint && !performanceMode && (
+            {!isGhost && !isBlueprint && (
               <mesh>
                 <sphereGeometry args={[radiusOuter * 0.15, 16, 16]} />
                 <meshBasicMaterial color="#60a5fa" transparent opacity={0.4} depthTest={false} />
@@ -365,14 +363,20 @@ function PipeComponent({
                   <cylinderGeometry args={[radiusInner, radiusInner, length, 32, 1, true]} />
                   <meshStandardMaterial color="#222" side={THREE.BackSide} />
                 </mesh>
-                <mesh position={[0, length / 2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-                  {material}
-                </mesh>
-                <mesh position={[0, -length / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-                  {material}
-                </mesh>
+                {/* Cap 1 (Socket 0) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 0) && (
+                  <mesh position={[0, length / 2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </mesh>
+                )}
+                {/* Cap 2 (Socket 1) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 1) && (
+                  <mesh position={[0, -length / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </mesh>
+                )}
               </>
             )}
           </group>
@@ -403,14 +407,20 @@ function PipeComponent({
                   <cylinderGeometry args={[radiusInner, radiusInner, 1 * radiusScale, 32, 1, true]} />
                   <meshStandardMaterial color="#222" side={THREE.BackSide} />
                 </mesh>
-                <mesh position={[0, 1 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-                  {material}
-                </mesh>
-                <mesh position={[1 * radiusScale, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-                  {material}
-                </mesh>
+                {/* Cap 1 (Socket 1 - vertical) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 1) && (
+                  <mesh position={[0, 1 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </mesh>
+                )}
+                {/* Cap 2 (Socket 0 - horizontal) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 0) && (
+                  <mesh position={[1 * radiusScale, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </mesh>
+                )}
               </>
             )}
           </group>
@@ -441,16 +451,22 @@ function PipeComponent({
                   <cylinderGeometry args={[radiusInner, radiusInner, 0.7 * radiusScale, 32, 1, true]} />
                   <meshStandardMaterial color="#222" side={THREE.BackSide} />
                 </mesh>
-                <mesh position={[0, 0.7 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-                  {material}
-                </mesh>
-                <mesh position={[0.495 * radiusScale, 0.495 * radiusScale, 0]} rotation={[0, 0, -Math.PI / 4]}>
-                  <group rotation={[0, Math.PI / 2, 0]}>
+                {/* Cap 1 (Socket 0 - vertical) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 0) && (
+                  <mesh position={[0, 0.7 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
                     <ringGeometry args={[radiusInner, radiusOuter, 32]} />
                     {material}
-                  </group>
-                </mesh>
+                  </mesh>
+                )}
+                {/* Cap 2 (Socket 1 - 45deg) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 1) && (
+                  <mesh position={[0.495 * radiusScale, 0.495 * radiusScale, 0]} rotation={[0, 0, -Math.PI / 4]}>
+                    <group rotation={[0, Math.PI / 2, 0]}>
+                      <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                      {material}
+                    </group>
+                  </mesh>
+                )}
               </>
             )}
           </group>
@@ -481,18 +497,27 @@ function PipeComponent({
                   <cylinderGeometry args={[radiusInner, radiusInner, 0.75 * radiusScale, 32, 1, true]} />
                   <meshStandardMaterial color="#222" side={THREE.BackSide} />
                 </mesh>
-                <mesh position={[0, 0.75 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-                  {material}
-                </mesh>
-                <mesh position={[0, -0.75 * radiusScale, 0]} rotation={[Math.PI / 2, 0, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-                  {material}
-                </mesh>
-                <mesh position={[0.75 * radiusScale, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-                  {material}
-                </mesh>
+                {/* Cap 1 (Socket 0 - Top) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 0) && (
+                  <mesh position={[0, 0.75 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </mesh>
+                )}
+                {/* Cap 2 (Socket 1 - Bottom) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 1) && (
+                  <mesh position={[0, -0.75 * radiusScale, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </mesh>
+                )}
+                {/* Cap 3 (Socket 2 - Branch) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 2) && (
+                  <mesh position={[0.75 * radiusScale, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </mesh>
+                )}
               </>
             )}
           </group>
@@ -519,42 +544,113 @@ function PipeComponent({
                   <cylinderGeometry args={[radiusInner, radiusInner, 2 * radiusScale, 32, 1, true]} />
                   <meshStandardMaterial color="#222" side={THREE.BackSide} />
                 </mesh>
-                <mesh position={[0, 1 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-                  {material}
-                </mesh>
-                <mesh position={[0, -1 * radiusScale, 0]} rotation={[Math.PI / 2, 0, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-                  {material}
-                </mesh>
-                <mesh position={[1 * radiusScale, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-                  {material}
-                </mesh>
-                <mesh position={[-1 * radiusScale, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-                  {material}
-                </mesh>
+                {/* Cap 1 (Socket 2 - Top) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 2) && (
+                  <mesh position={[0, 1 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </mesh>
+                )}
+                {/* Cap 2 (Socket 3 - Bottom) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 3) && (
+                  <mesh position={[0, -1 * radiusScale, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </mesh>
+                )}
+                {/* Cap 3 (Socket 0 - Right) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 0) && (
+                  <mesh position={[1 * radiusScale, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </mesh>
+                )}
+                {/* Cap 4 (Socket 1 - Left) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 1) && (
+                  <mesh position={[-1 * radiusScale, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </mesh>
+                )}
               </>
             )}
           </group>
         );
       case 'valve':
+        const valveLen = 1.5 * radiusScale;
+        const bodyRadius = radiusOuter * 1.4;
+        const neckRadius = radiusOuter * 0.4;
+        const handleLen = 2.0 * radiusScale;
+
         return (
           <group>
-            <Hitbox type={type} radius={radiusOuter} radiusScale={radiusScale} />
+            <Hitbox type={type} radius={bodyRadius} length={valveLen} />
+
+            {/* 1. Main Central Body (Hexagonal-ish or chunky cylinder) */}
             <mesh>
-              <cylinderGeometry args={[radius, radius, 1.5 * radiusScale, 16]} />
+              <cylinderGeometry args={[bodyRadius, bodyRadius, 0.6 * radiusScale, 6]} />
+              {material}
+              {!isGhost && !isBlueprint && <Edges threshold={20} color="#cbd5e1" opacity={0.4} transparent />}
+            </mesh>
+
+            {/* 2. End Connectors (Matching Pipe OD) */}
+            <mesh position={[0, 0.55 * radiusScale, 0]}>
+              <cylinderGeometry args={[radiusOuter, radiusOuter, 0.4 * radiusScale, 32, 1, true]} />
               {material}
             </mesh>
-            <mesh position={[0, 0.3 * radiusScale, 0]}>
-              <boxGeometry args={[0.4 * radiusScale, 0.1 * radiusScale, 0.4 * radiusScale]} />
-              <meshStandardMaterial color="#333" />
+            <mesh position={[0, -0.55 * radiusScale, 0]}>
+              <cylinderGeometry args={[radiusOuter, radiusOuter, 0.4 * radiusScale, 32, 1, true]} />
+              {material}
             </mesh>
-            <mesh position={[0, 0.6 * radiusScale, 0]} rotation={[0, Math.PI / 4, 0]}>
-              <cylinderGeometry args={[radius * 0.33, radius * 0.33, 0.6 * radiusScale, 8]} />
-              <meshStandardMaterial color="#333" />
+
+            {/* 3. Handle Stem (Neck) */}
+            <mesh position={[0, 0, bodyRadius * 0.8]} rotation={[Math.PI / 2, 0, 0]}>
+              <cylinderGeometry args={[neckRadius, neckRadius, 0.3 * radiusScale, 16]} />
+              <meshStandardMaterial color="#78716c" metalness={0.8} roughness={0.2} />
             </mesh>
+
+            {/* 4. Lever Handle (Realistic Blue Handle) */}
+            <group position={[0, 0, bodyRadius * 0.8 + 0.15 * radiusScale]} rotation={[Math.PI / 2, 0, 0]}>
+              {/* Handle Base / Nut */}
+              <mesh rotation={[Math.PI / 2, 0, 0]}>
+                <cylinderGeometry args={[neckRadius * 1.2, neckRadius * 1.2, 0.1 * radiusScale, 6]} />
+                <meshStandardMaterial color="#444" metalness={0.9} roughness={0.1} />
+              </mesh>
+              {/* The long Blue Lever */}
+              <mesh position={[handleLen / 2 - 0.2 * radiusScale, 0, 0]}>
+                <boxGeometry args={[handleLen, 0.08 * radiusScale, 0.2 * radiusScale]} />
+                <meshStandardMaterial color="#2563eb" metalness={0.3} roughness={0.4} />
+              </mesh>
+              {/* Curved end of handle */}
+              <mesh position={[handleLen - 0.2 * radiusScale, 0, 0]}>
+                <sphereGeometry args={[0.1 * radiusScale, 16, 16]} scale={[1, 0.4, 1]} />
+                <meshStandardMaterial color="#2563eb" />
+              </mesh>
+            </group>
+
+            {/* 5. Hollow Interior Logic (Visual Holes) */}
+            {!isGhost && !isBlueprint && (
+              <>
+                <mesh>
+                  <cylinderGeometry args={[radiusInner, radiusInner, valveLen, 32, 1, true]} />
+                  <meshStandardMaterial color="#222" side={THREE.BackSide} />
+                </mesh>
+                {/* Cap 1 (Socket 0 - Top) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 0) && (
+                  <mesh position={[0, 0.75 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </mesh>
+                )}
+                {/* Cap 2 (Socket 1 - Bottom) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 1) && (
+                  <mesh position={[0, -0.75 * radiusScale, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </mesh>
+                )}
+              </>
+            )}
           </group>
         );
       case 'filter':
@@ -574,7 +670,7 @@ function PipeComponent({
         const tankHeight = length;
         const tankRadius = 1 * radiusScale;
         return (
-          <group>
+          <group position={[0, tankHeight / 2, 0]}>
             <mesh>
               <cylinderGeometry args={[tankRadius, tankRadius, tankHeight, 32]} />
               {material}
@@ -604,97 +700,32 @@ function PipeComponent({
         const iLegColor = darkMode ? "#334155" : "#475569";
 
         return (
-          <group>
-            {/* Hitbox covering the entire height */}
-            <Hitbox type={type} radius={iTankRadius} length={tankLength} />
+          <group position={[0, iConeHeight, 0]}>
+            {/* Hitbox covering the entire height - Offset to match shifted origin */}
+            <group position={[0, (tankLength / 2) - iConeHeight, 0]}>
+              <Hitbox type={type} radius={iTankRadius} length={tankLength} />
+            </group>
 
-            {/* Main Body (Centered locally) */}
-            <mesh position={[0, (iConeHeight / 2), 0]}>
+            {/* Main Body (Height relative to legs/cone) */}
+            <mesh position={[0, (iBodyHeight / 2), 0]}>
               <cylinderGeometry args={[iTankRadius, iTankRadius, iBodyHeight, 32]} />
               <meshStandardMaterial color={iTankColor} metalness={0.4} roughness={0.3} />
             </mesh>
 
             {/* Domed Top Cap */}
-            <mesh position={[0, (iConeHeight / 2) + (iBodyHeight / 2), 0]}>
+            <mesh position={[0, iBodyHeight, 0]}>
               <sphereGeometry args={[iTankRadius, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
               <meshStandardMaterial color={iTankColor} metalness={0.4} roughness={0.3} />
             </mesh>
 
-            {/* Top Nozzle — protrudes above dome apex */}
-            {(() => {
-              const domeCenter = (iConeHeight / 2) + (iBodyHeight / 2);
-              const domeApex = domeCenter + iTankRadius; // very top of the dome hemisphere
-              const nozzlePipeLen = iTankRadius * 0.6;
-              const nozzlePipeY = domeApex + nozzlePipeLen / 2;   // pipe center above dome
-              const nozzleFlangeY = domeApex + nozzlePipeLen;        // flange at top of pipe
-              return (
-                <>
-                  <mesh position={[0, nozzlePipeY, 0]}>
-                    <cylinderGeometry args={[tankOD * 0.09, tankOD * 0.09, nozzlePipeLen, 16]} />
-                    <meshStandardMaterial color={iTankColor} metalness={0.4} roughness={0.3} />
-                  </mesh>
-                  <mesh position={[0, nozzleFlangeY, 0]}>
-                    <cylinderGeometry args={[tankOD * 0.14, tankOD * 0.14, 0.06, 32]} />
-                    <meshStandardMaterial color="#333" />
-                  </mesh>
-                </>
-              );
-            })()}
 
             {/* Conical Bottom */}
-            <mesh position={[0, -(iBodyHeight / 2) + (iConeHeight / 2) - (iConeHeight / 2), 0]} rotation={[Math.PI, 0, 0]}>
+            <mesh position={[0, 0, 0]} rotation={[Math.PI, 0, 0]}>
               <coneGeometry args={[iTankRadius, iConeHeight, 32]} />
               <meshStandardMaterial color={iTankColor} metalness={0.4} roughness={0.3} />
             </mesh>
 
-            {/* Bottom Nozzle — protrudes downward from cone apex */}
-            {(() => {
-              // coneBottom is the lowest point of the cone (apex pointing down)
-              const coneBottom = -(iBodyHeight / 2) - (iConeHeight / 2);
-              const nozzlePipeLen = iTankRadius * 0.5;
-              const nozzlePipeY = coneBottom - nozzlePipeLen / 2;
-              const nozzleFlangeY = coneBottom - nozzlePipeLen;
-              return (
-                <>
-                  <mesh position={[0, nozzlePipeY, 0]}>
-                    <cylinderGeometry args={[tankOD * 0.09, tankOD * 0.09, nozzlePipeLen, 16]} />
-                    <meshStandardMaterial color={iTankColor} metalness={0.4} roughness={0.3} />
-                  </mesh>
-                  <mesh position={[0, nozzleFlangeY, 0]}>
-                    <cylinderGeometry args={[tankOD * 0.14, tankOD * 0.14, 0.06, 32]} />
-                    <meshStandardMaterial color="#333" />
-                  </mesh>
-                </>
-              );
-            })()}
 
-            {/* Side Nozzles (Aligned with sockets at 1.5m and 0.5m scaled) */}
-            {[1.5 * vScale, 0.5 * vScale].map((yPos, idx) => (
-              <group key={idx} position={[0, yPos, 0]}>
-                {/* Left */}
-                <group rotation={[0, 0, Math.PI / 2]}>
-                  <mesh position={[0, iTankRadius * 0.85, 0]}>
-                    <cylinderGeometry args={[tankOD * 0.08, tankOD * 0.08, iTankRadius * 0.3, 16]} />
-                    <meshStandardMaterial color={iTankColor} />
-                  </mesh>
-                  <mesh position={[0, iTankRadius, 0]}>
-                    <cylinderGeometry args={[tankOD * 0.12, tankOD * 0.12, 0.05, 32]} />
-                    <meshStandardMaterial color="#333" />
-                  </mesh>
-                </group>
-                {/* Right */}
-                <group rotation={[0, 0, -Math.PI / 2]}>
-                  <mesh position={[0, iTankRadius * 0.85, 0]}>
-                    <cylinderGeometry args={[tankOD * 0.08, tankOD * 0.08, iTankRadius * 0.3, 16]} />
-                    <meshStandardMaterial color={iTankColor} />
-                  </mesh>
-                  <mesh position={[0, iTankRadius, 0]}>
-                    <cylinderGeometry args={[tankOD * 0.12, tankOD * 0.12, 0.05, 32]} />
-                    <meshStandardMaterial color="#333" />
-                  </mesh>
-                </group>
-              </group>
-            ))}
 
             {/* Support Legs (Height based on cone height) */}
             {[45, 135, 225, 315].map(angle => {
@@ -761,41 +792,68 @@ function PipeComponent({
           </group>
         );
       case 'flange':
+        const flangeR = radiusOuter * 1.5;
+        const flangeH = 0.2 * radiusScale; // Total height matches socket positions
         return (
           <group>
-            <mesh position={[0, -0.05, 0]}>
-              <cylinderGeometry args={[radiusOuter * 1.5, radiusOuter * 1.5, 0.1, 32, 1, true]} />
+            <Hitbox type={type} radius={flangeR} length={flangeH} />
+
+            {/* Lower Large Disk (y: -0.1 to 0) scaled */}
+            <mesh position={[0, -0.05 * radiusScale, 0]}>
+              <cylinderGeometry args={[flangeR, flangeR, 0.1 * radiusScale, 32, 1, true]} />
               {material}
+              {!isGhost && !isBlueprint && <Edges threshold={15} color="#cbd5e1" opacity={0.3} transparent />}
             </mesh>
-            <mesh position={[0, 0.05, 0]}>
-              <cylinderGeometry args={[radiusOuter, radiusOuter, 0.1, 32, 1, true]} />
+            {/* Upper Small Neck (y: 0 to 0.1) scaled */}
+            <mesh position={[0, 0.05 * radiusScale, 0]}>
+              <cylinderGeometry args={[radiusOuter, radiusOuter, 0.1 * radiusScale, 32, 1, true]} />
               {material}
+              {!isGhost && !isBlueprint && <Edges threshold={15} color="#cbd5e1" opacity={0.3} transparent />}
             </mesh>
-            {/* Component Labels & Dimensions */}
+
             {!isGhost && !isBlueprint && (
               <>
-                {/* Inner surfaces */}
-                <mesh position={[0, -0.05, 0]}>
-                  <cylinderGeometry args={[radiusInner, radiusInner, 0.1, 32, 1, true]} />
-                  <meshStandardMaterial color="#222" side={THREE.BackSide} />
+                {/* Internal bore surfaces (dark) */}
+                <mesh position={[0, 0, 0]}>
+                  <cylinderGeometry args={[radiusInner, radiusInner, 0.2 * radiusScale, 32, 1, true]} />
+                  <meshStandardMaterial color="#222" side={THREE.DoubleSide} />
                 </mesh>
-                <mesh position={[0, 0.05, 0]}>
-                  <cylinderGeometry args={[radiusInner, radiusInner, 0.1, 32, 1, true]} />
-                  <meshStandardMaterial color="#222" side={THREE.BackSide} />
-                </mesh>
-                {/* Ring caps */}
+
+                {/* Ring Caps for solid look - using DoubleSide to prevent 'white' see-through gaps */}
+                {/* 1. Bottom face (pointing down at y=-0.1, Socket 1) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 1) && (
+                  <mesh position={[0, -0.1 * radiusScale, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                    <ringGeometry args={[radiusInner, flangeR, 32]} />
+                    <meshStandardMaterial
+                      color={isSelected ? '#1d4ed8' : matConfig.color}
+                      metalness={isSelected ? 0.4 : 0.6}
+                      roughness={isSelected ? 0.2 : 0.4}
+                      side={THREE.DoubleSide}
+                    />
+                  </mesh>
+                )}
+                {/* 2. Middle 'Step' face (pointing up at y=0) - ALWAYS SHOW THIS AS IT IS STRUCTURAL */}
                 <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-                  {material}
+                  <ringGeometry args={[radiusOuter, flangeR, 32]} />
+                  <meshStandardMaterial
+                    color={isSelected ? '#1d4ed8' : matConfig.color}
+                    metalness={isSelected ? 0.4 : 0.6}
+                    roughness={isSelected ? 0.2 : 0.4}
+                    side={THREE.DoubleSide}
+                  />
                 </mesh>
-                <mesh position={[0, -0.1, 0]} rotation={[Math.PI / 2, 0, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter * 1.5, 32]} />
-                  {material}
-                </mesh>
-                <mesh position={[0, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
-                  <ringGeometry args={[radiusOuter, radiusOuter * 1.5, 32]} />
-                  {material}
-                </mesh>
+                {/* 3. Top face (pointing up at y=0.1, Socket 0) */}
+                {!(component.connections || []).some(c => c.localSocketIdx === 0) && (
+                  <mesh position={[0, 0.1 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    <meshStandardMaterial
+                      color={isSelected ? '#1d4ed8' : matConfig.color}
+                      metalness={isSelected ? 0.4 : 0.6}
+                      roughness={isSelected ? 0.2 : 0.4}
+                      side={THREE.DoubleSide}
+                    />
+                  </mesh>
+                )}
               </>
             )}
           </group>
@@ -820,23 +878,27 @@ function PipeComponent({
                   <meshStandardMaterial color="#222" side={THREE.BackSide} />
                 </mesh>
                 {/* Outer ring caps */}
-                <mesh position={[0, 0.25 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                <mesh position={[0, 0.3 * radiusScale, 0]} rotation={[-Math.PI / 2, 0, 0]}>
                   <ringGeometry args={[radiusOuter, radiusOuter * 1.2, 32]} />
                   {material}
                 </mesh>
-                <mesh position={[0, -0.25 * radiusScale, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                <mesh position={[0, -0.3 * radiusScale, 0]} rotation={[Math.PI / 2, 0, 0]}>
                   <ringGeometry args={[radiusOuter, radiusOuter * 1.2, 32]} />
                   {material}
                 </mesh>
                 {/* Main pipe caps */}
-                <mesh position={[0, innerLen / 2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-                  {material}
-                </mesh>
-                <mesh position={[0, -innerLen / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>
-                  <ringGeometry args={[radiusInner, radiusOuter, 32]} />
-                  {material}
-                </mesh>
+                {!(component.connections || []).some(c => c.localSocketIdx === 0) && (
+                  <mesh position={[0, innerLen / 2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </mesh>
+                )}
+                {!(component.connections || []).some(c => c.localSocketIdx === 1) && (
+                  <mesh position={[0, -innerLen / 2, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                    <ringGeometry args={[radiusInner, radiusOuter, 32]} />
+                    {material}
+                  </mesh>
+                )}
               </>
             )}
           </group>
@@ -955,90 +1017,7 @@ function PipeComponent({
     }
   };
 
-  // --- STAGGERING / LABELS ---
-  const staggerX = ((idHash % 5) - 2) * 0.25;
-  const staggerY = ((idHash % 3) - 1) * 0.35;
-
-  const DimensionLabels = () => {
-    if (isCapture && !['iso', 'front'].includes(viewMode)) return null;
-    if ((viewMode === 'iso' && !isCapture) || isGhost) return null;
-
-    // Use padded radius for industrial tank to avoid label clashing
-    const visualRadius = component.component_type === 'industrial-tank' ? (radiusOuter + 0.15) : radiusOuter;
-
-    const invRotation = [
-      -((component.rotation_x || 0) * Math.PI) / 180,
-      -((component.rotation_y || 0) * Math.PI) / 180,
-      -((component.rotation_z || 0) * Math.PI) / 180,
-    ];
-
-    // --- ULTRA-MINIMALIST "ON TOP" LAYOUT ---
-    const finalStaggerX = 0;
-    const finalStaggerY = visualRadius + 0.4; // Hovering strictly above center
-
-    const isClashing = component._isClashing;
-    const labelColor = isClashing ? "#ef4444" : (isCapture ? "#1e293b" : "#1d4ed8");
-
-    // Simplified numeric ID only
-    const displayTag = tag.replace(/[^0-9]/g, '') || tag;
-
-    return (
-      <group rotation={invRotation} position={[0, 0, 0.1]}>
-        <group position={[0, radiusOuter + 0.4, 0.5]}>
-          <Billboard follow={true}>
-            <Text
-              fontSize={isCapture ? 0.4 : 0.28}
-              color={labelColor}
-              font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf"
-              anchorX="center"
-              anchorY="middle"
-              fontWeight="900"
-            >
-              {[displayTag, isClashing ? '!' : ''].join('')}
-            </Text>
-          </Billboard>
-        </group>
-
-        {/* Clash Highlight on Geometry */}
-        {isClashing && isCapture && (
-          <mesh position={[0, 0, 0]}>
-            <sphereGeometry args={[radiusOuter * 1.6, 16, 16]} />
-            <meshBasicMaterial color="#ef4444" transparent opacity={0.08} />
-          </mesh>
-        )}
-
-        {isHovered && !isCapture && !isGhost && (
-          <group position={[0, -(radiusOuter + 0.8), 0.1]}>
-            <Text
-              position={[0, 0, 0]}
-              fontSize={0.2}
-              color={darkMode ? '#cbd5e1' : '#1e293b'}
-              font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf"
-              anchorX="center"
-              anchorY="middle"
-              outlineWidth={0.02}
-              outlineColor={darkMode ? '#0f172a' : '#ffffff'}
-            >
-              {`L: ${length.toFixed(2)}m | EL +${elevation.toFixed(2)}`}
-            </Text>
-            <Text
-              position={[0, -0.25, 0]}
-              fontSize={0.12}
-              color={darkMode ? '#94a3b8' : '#475569'}
-              font="https://fonts.gstatic.com/s/roboto/v20/KFOmCnqEu92Fr1Mu4mxP.ttf"
-              anchorX="center"
-              anchorY="middle"
-              maxWidth={2.5}
-              outlineWidth={0.01}
-              outlineColor={darkMode ? '#0f172a' : '#ffffff'}
-            >
-              {`OD:${od.toFixed(2)} | ID:${idValue.toFixed(2)} | WT:${wt.toFixed(3)}m`}
-            </Text>
-          </group>
-        )}
-      </group>
-    );
-  };
+  // --- STAGGERING / LABELS REMOVED ---
 
   const currentDef = COMPONENT_DEFINITIONS[component.component_type || 'straight'];
 
@@ -1077,33 +1056,6 @@ function PipeComponent({
             const sPos = socket.position.clone();
             if (component.component_type === 'straight' || component.component_type === 'vertical') {
               sPos.y = (length / 2) * (socket.position.y > 0 ? 1 : -1);
-            } else if (component.component_type === 'industrial-tank') {
-              // Compute exact nozzle positions to match visual geometry
-              const od_val = component.properties?.od || 2.2;
-              const len_val = component.properties?.length || 4.0;
-              const vis_tankOD = od_val + 0.5;           // match +0.5 visual padding
-              const vis_r = vis_tankOD / 2;         // visual radius
-              const vis_body = len_val * 0.75;
-              const vis_cone = len_val * 0.25;
-              const vis_vScale = len_val / 4.0;
-
-              // socket order: TOP(0), BOTTOM(1), LEFT-HI(2), LEFT-LO(3), RIGHT-HI(4), RIGHT-LO(5)
-              if (idx === 0) {
-                // TOP — nozzle flange above dome apex
-                const domeCenter = (vis_cone / 2) + (vis_body / 2);
-                const domeApex = domeCenter + vis_r;
-                sPos.set(0, domeApex + vis_r * 0.6, 0);
-              } else if (idx === 1) {
-                // BOTTOM — nozzle flange below cone apex
-                const coneBottom = -(vis_body / 2) - (vis_cone / 2);
-                sPos.set(0, coneBottom - vis_r * 0.5, 0);
-              } else {
-                // SIDE nozzles — flange at tank surface radius, at scaled Y heights
-                const sideYs = [1.5 * vis_vScale, 0.5 * vis_vScale, 1.5 * vis_vScale, 0.5 * vis_vScale];
-                const sideXs = [-vis_r, -vis_r, vis_r, vis_r]; // left hi, left lo, right hi, right lo
-                const i = idx - 2;
-                sPos.set(sideXs[i], sideYs[i], 0);
-              }
             } else {
               sPos.multiplyScalar(radiusScale);
             }
@@ -1174,14 +1126,7 @@ function PipeComponent({
         </Billboard>
       )}
 
-      {isHovered && !isGhost && !performanceMode && (
-        <Html distanceFactor={10} position={[0, radius + 0.3, 0]}>
-          <div className="bg-white/90 backdrop-blur px-2 py-1 rounded shadow text-[10px] font-bold text-slate-800 pointer-events-none whitespace-nowrap">
-            {labelText} (L: {length.toFixed(1)}m)
-          </div>
-        </Html>
-      )}
-      <DimensionLabels />
+      {/* Labels removed per user request */}
     </group>
   );
 }

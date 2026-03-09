@@ -224,6 +224,7 @@ export default function ComponentLibrary({
               </button>
             </div>
 
+
             {/* Physical Properties */}
             <div className="pt-4 space-y-4">
               <p className={`text-[10px] uppercase font-black tracking-widest text-center opacity-80 transition-colors ${darkMode ? 'text-slate-500' : 'text-blue-400'}`}>Part Specifications</p>

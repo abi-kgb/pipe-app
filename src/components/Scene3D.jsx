@@ -98,7 +98,6 @@ const SharedSceneElements = ({
   transformMode,
   viewMode,
   darkMode,
-  blueprintMode,
   onBatchSelect,
   isCapture = false,
   placingTemplate,
@@ -106,14 +105,12 @@ const SharedSceneElements = ({
   isTransforming,
   suppressLabels = false,
   onTransform,
-  performanceMode = false,
   isLocked = false,
   connectionMode = false,
   selectedSockets = [],
   onSocketClick,
 }) => {
-  const isBlueprint = isCapture || blueprintMode;
-  const bgColor = isBlueprint ? '#ffffff' : (darkMode ? '#0f172a' : '#ffffff');
+  const bgColor = isCapture ? '#ffffff' : (darkMode ? '#0f172a' : '#ffffff');
 
   const gridCellColor = darkMode ? '#1e293b' : '#e2e8f0';
   const gridSectionColor = darkMode ? '#334155' : '#cbd5e1';
@@ -129,8 +126,7 @@ const SharedSceneElements = ({
       <spotLight position={[10, 20, 10]} intensity={1.5} />
       <pointLight position={[-10, 10, -10]} intensity={1} />
 
-      {/* Grounding Contact Shadows - Disabled in Performance/Capture Mode */}
-      {!isCapture && !performanceMode && (
+      {!isCapture && (
         <ContactShadows
           position={[0, -0.01, 0]}
           opacity={0.4}
@@ -174,9 +170,7 @@ const SharedSceneElements = ({
             darkMode={darkMode}
             tag={comp._tag}
             isCapture={isCapture}
-            blueprintMode={blueprintMode}
             suppressLabels={suppressLabels}
-            performanceMode={performanceMode}
             connectionMode={connectionMode}
             selectedSockets={selectedSockets}
             onSocketClick={onSocketClick}
@@ -192,7 +186,6 @@ const SharedSceneElements = ({
           onPlace={onPlaceComponent}
           viewMode={viewMode}
           darkMode={darkMode}
-          blueprintMode={blueprintMode}
         />
       )}
 
@@ -252,14 +245,19 @@ const SelectionManager = ({ components, onBatchSelect, isDragging, isLocked }) =
       const dy = pointer.y - startPointer.current.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
-      // Threshold: approx 8 pixels in normalized space (depends on size, but 0.01 is usually safe)
+      // Threshold: approx 8 pixels in normalized space
       if (!isDragging.current && dist > 0.01) {
         isDragging.current = true;
       }
 
       if (isDragging.current) {
         setStart(startPointer.current);
-        setCurrent({ x: pointer.x, y: pointer.y });
+        // Clamp current position to viewport bounds [-1, 1] 
+        // to prevent "feedback selection" from outside the window
+        setCurrent({
+          x: Math.max(-1, Math.min(1, pointer.x)),
+          y: Math.max(-1, Math.min(1, pointer.y))
+        });
       }
     };
 
@@ -269,7 +267,11 @@ const SelectionManager = ({ components, onBatchSelect, isDragging, isLocked }) =
 
       if (wasDragging && startPointer.current) {
         const finalStart = startPointer.current;
-        const finalEnd = { x: pointer.x, y: pointer.y };
+        // Clamp end pointer as well
+        const finalEnd = {
+          x: Math.max(-1, Math.min(1, pointer.x)),
+          y: Math.max(-1, Math.min(1, pointer.y))
+        };
 
         const bounds = {
           left: Math.min(finalStart.x, finalEnd.x),
@@ -283,7 +285,10 @@ const SelectionManager = ({ components, onBatchSelect, isDragging, isLocked }) =
           const pos = new THREE.Vector3(comp.position_x, comp.position_y, comp.position_z);
           pos.project(camera); // Projects to NDC (-1 to 1)
 
-          if (pos.x >= bounds.left && pos.x <= bounds.right &&
+          // 🚨 CRITICAL FIX: pos.z < 1 ensures components behind the camera 
+          // aren't selected by accident. In NDC, z ranges -1 (near) to 1 (far).
+          if (pos.z <= 1 &&
+            pos.x >= bounds.left && pos.x <= bounds.right &&
             pos.y >= bounds.bottom && pos.y <= bounds.top) {
             batch.push(comp.id);
           }
@@ -353,7 +358,7 @@ const SelectionManager = ({ components, onBatchSelect, isDragging, isLocked }) =
 };
 
 // ... (PlacementGhost and EditorControls remain the same)
-const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, viewMode, darkMode, blueprintMode }) => {
+const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, viewMode, darkMode }) => {
   const { raycaster, pointer, camera } = useThree();
   const [snap, setSnap] = useState(null);
   const pointerDownPos = useRef({ x: 0, y: 0 });
@@ -378,35 +383,76 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
   });
 
   const handlePointerDown = (e) => {
-    // We captured the screen pos, but don't stop propagation 
-    // so CameraControls can still handle rotation/pan
+    e.stopPropagation(); // Prevent camera controls from starting orbit/pan during placement
     pointerDownPos.current = { x: e.clientX, y: e.clientY };
   };
 
   const handlePointerUp = (e) => {
-    // e.stopPropagation(); // REMOVED: Don't block background controls
+    e.stopPropagation();
     // Only place if it's a clean click, not a significant drag
     const dist = Math.sqrt(
       Math.pow(e.clientX - pointerDownPos.current.x, 2) +
       Math.pow(e.clientY - pointerDownPos.current.y, 2)
     );
-    // Increased threshold from 5 to 10 for better sensitivity on trackpads/tablets
-    if (dist > 10) return;
+    if (dist > 12) return; // Slightly relaxed threshold
 
     if (snap && snap.isValid) {
-      // Small local protection to prevent double-firing while App is processing
+      // 🚨 BLOCK PLACEMENT IF INTERSECTING
+      if (snap.isIntersecting) {
+        console.warn('Pipe3D: Cannot place here - Collision detected');
+        return;
+      }
+
+      // Small local protection to prevent double-firing
       if (e.target._isPlacing) return;
       e.target._isPlacing = true;
       setTimeout(() => { if (e.target) e.target._isPlacing = false; }, 400);
 
       onPlace(
         [snap.position.x, snap.position.y, snap.position.z],
-        [snap.rotation.x * (180 / Math.PI), snap.rotation.y * (180 / Math.PI), snap.rotation.z * (180 / Math.PI)]
+        [snap.rotation.x * (180 / Math.PI), snap.rotation.y * (180 / Math.PI), snap.rotation.z * (180 / Math.PI)],
+        {}, // properties override (none)
+        snap.targetComponentId,
+        snap.targetSocketIndex,
+        snap.placingSocketIndex
       );
     }
   };
 
-  if (!snap) return null;
+  // Background click planes — covering the full scene so clicking ANYWHERE places the pipe
+  // (not just the tiny snap bubble). One plane for ground view, one for front view.
+  const BackgroundClickPlane = () => {
+    if (viewMode === 'front') {
+      // Front view: vertical Z=0 plane
+      return (
+        <mesh
+          position={[0, 0, 0]}
+          onPointerDown={handlePointerDown}
+          onPointerUp={handlePointerUp}
+        >
+          <planeGeometry args={[2000, 2000]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
+      );
+    }
+    // All other views: horizontal Y=0 ground plane
+    return (
+      <mesh
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0, -0.001, 0]}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+      >
+        <planeGeometry args={[2000, 2000]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
+    );
+  };
+
+  // Always render the background click plane immediately (even before first snap is computed)
+  if (!snap) {
+    return <BackgroundClickPlane />;
+  }
 
   const ghostComponent = {
     id: 'ghost',
@@ -426,86 +472,86 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
   };
 
   return (
-    <group
-      position={[snap.position.x, snap.position.y, snap.position.z]}
-      rotation={[snap.rotation.x, snap.rotation.y, snap.rotation.z]}
-    >
-      {placingTemplate?.isAssembly && placingTemplate.parts ? (
-        placingTemplate.parts.map((p, i) => {
-          // Calculate rotated preview for each part
-          const assemblyQuat = new THREE.Quaternion().setFromEuler(
-            new THREE.Euler(snap.rotation.x, snap.rotation.y, snap.rotation.z)
-          );
+    <>
+      {/* Full-scene background click plane — clicking anywhere places the pipe */}
+      <BackgroundClickPlane />
 
-          // 1. Position
-          const offsetVec = new THREE.Vector3(p.offset_x || 0, p.offset_y || 0, p.offset_z || 0);
-          offsetVec.applyQuaternion(assemblyQuat);
-
-          // 2. Rotation
-          const partLocalRot = new THREE.Euler(
-            (p.rotation_x || 0) * (Math.PI / 180),
-            (p.rotation_y || 0) * (Math.PI / 180),
-            (p.rotation_z || 0) * (Math.PI / 180)
-          );
-          const partLocalQuat = new THREE.Quaternion().setFromEuler(partLocalRot);
-          const partFinalQuat = assemblyQuat.clone().multiply(partLocalQuat);
-          const finalRot = new THREE.Euler().setFromQuaternion(partFinalQuat);
-
-          return (
-            <group key={`ghost_ass_${i}`} pointerEvents="none">
-              <PipeComponent
-                component={{
-                  ...p,
-                  id: `ghost_part_${i}`,
-                  position_x: offsetVec.x,
-                  position_y: offsetVec.y,
-                  position_z: offsetVec.z,
-                  rotation_x: finalRot.x * (180 / Math.PI),
-                  rotation_y: finalRot.y * (180 / Math.PI),
-                  rotation_z: finalRot.z * (180 / Math.PI),
-                  _isGhost: true,
-                  _isValid: snap.isValid && !snap.isIntersecting,
-                  _isIntersecting: snap.isIntersecting
-                }}
-                isSelected={false}
-                isGhost={true}
-                onSelect={() => { }}
-                onUpdate={() => { }}
-                viewMode={viewMode}
-                darkMode={darkMode}
-                blueprintMode={blueprintMode}
-              />
-            </group>
-          );
-        })
-      ) : (
-        <group pointerEvents="none">
-          <PipeComponent
-            component={{
-              ...ghostComponent,
-              position_x: 0,
-              position_y: 0,
-              position_z: 0,
-              rotation_x: 0,
-              rotation_y: 0,
-              rotation_z: 0,
-            }}
-            isSelected={false}
-            isGhost={true}
-            onSelect={() => { }}
-            onUpdate={() => { }}
-            viewMode={viewMode}
-            darkMode={darkMode}
-            blueprintMode={blueprintMode}
-          />
-        </group>
-      )}
-      {/* Snap point indicator (The "Bubble") */}
       <group
-        position={[0, 0, 0]}
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
+        position={[snap.position.x, snap.position.y, snap.position.z]}
+        rotation={[snap.rotation.x, snap.rotation.y, snap.rotation.z]}
       >
+        {placingTemplate?.isAssembly && placingTemplate.parts ? (
+          placingTemplate.parts.map((p, i) => {
+            // Calculate rotated preview for each part
+            const assemblyQuat = new THREE.Quaternion().setFromEuler(
+              new THREE.Euler(snap.rotation.x, snap.rotation.y, snap.rotation.z)
+            );
+
+            // 1. Position
+            const offsetVec = new THREE.Vector3(p.offset_x || 0, p.offset_y || 0, p.offset_z || 0);
+            offsetVec.applyQuaternion(assemblyQuat);
+
+            // 2. Rotation
+            const partLocalRot = new THREE.Euler(
+              (p.rotation_x || 0) * (Math.PI / 180),
+              (p.rotation_y || 0) * (Math.PI / 180),
+              (p.rotation_z || 0) * (Math.PI / 180)
+            );
+            const partLocalQuat = new THREE.Quaternion().setFromEuler(partLocalRot);
+            const partFinalQuat = assemblyQuat.clone().multiply(partLocalQuat);
+            const finalRot = new THREE.Euler().setFromQuaternion(partFinalQuat);
+
+            return (
+              <group key={`ghost_ass_${i}`} pointerEvents="none">
+                <PipeComponent
+                  component={{
+                    ...p,
+                    id: `ghost_part_${i}`,
+                    position_x: offsetVec.x,
+                    position_y: offsetVec.y,
+                    position_z: offsetVec.z,
+                    rotation_x: finalRot.x * (180 / Math.PI),
+                    rotation_y: finalRot.y * (180 / Math.PI),
+                    rotation_z: finalRot.z * (180 / Math.PI),
+                    _isGhost: true,
+                    _isValid: snap.isValid && !snap.isIntersecting,
+                    _isIntersecting: snap.isIntersecting
+                  }}
+                  isSelected={false}
+                  isGhost={true}
+                  onSelect={() => { }}
+                  onUpdate={() => { }}
+                  viewMode={viewMode}
+                  darkMode={darkMode}
+                />
+              </group>
+            );
+          })
+        ) : (
+          <group pointerEvents="none">
+            <PipeComponent
+              component={{
+                ...ghostComponent,
+                position_x: 0,
+                position_y: 0,
+                position_z: 0,
+                rotation_x: 0,
+                rotation_y: 0,
+                rotation_z: 0,
+              }}
+              isSelected={false}
+              isGhost={true}
+              onSelect={() => { }}
+              onUpdate={() => { }}
+              viewMode={viewMode}
+              darkMode={darkMode}
+            />
+          </group>
+        )}
+      </group>
+
+      {/* Snap point indicator (The "Bubble") — Visual only, positioned at actual connection point */}
+      <group position={[snap.snapSocketWorldPos.x, snap.snapSocketWorldPos.y, snap.snapSocketWorldPos.z]}>
         {/* Visual Indicator */}
         <mesh>
           <sphereGeometry args={[snap.isSnappedToSocket ? 0.35 : 0.15, 16, 16]} />
@@ -525,7 +571,7 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
           </mesh>
         )}
 
-        {/* Invisible Click Hitbox - Makes the bubble easy to click */}
+        {/* Invisible Click Hitbox - Makes the bubble easy to click (though background plane handles it now) */}
         <mesh visible={false}>
           <sphereGeometry args={[0.8, 16, 16]} />
           <meshBasicMaterial color="red" transparent opacity={0.1} />
@@ -540,7 +586,7 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
           </Html>
         )}
       </group>
-    </group>
+    </>
   );
 };
 
@@ -1012,7 +1058,7 @@ const ViewportCameraControls = ({ viewMode, setResetHandler, setZoomHandlers, se
 
 
 const Scene3D = forwardRef(function Scene3D({
-  components, selectedIds, onSelectComponent, onBatchSelect, placingType, placingTemplate, onPlaceComponent, onCancelPlacement, onUpdateComponent, onUpdateMultiple, transformMode, designName, darkMode, isLocked, suppressLabels = false, blueprintMode, isCapturing = false, performanceMode = false,
+  components, selectedIds, onSelectComponent, onBatchSelect, placingType, placingTemplate, onPlaceComponent, onCancelPlacement, onUpdateComponent, onUpdateMultiple, transformMode, designName, darkMode, isLocked, suppressLabels = false, isCapturing = false,
   connectionMode = false, selectedSockets = [], onSocketClick
 }, ref) {
   const [viewLayout, setViewLayout] = useState(['iso', 'front', 'top']);
@@ -1072,21 +1118,30 @@ const Scene3D = forwardRef(function Scene3D({
     return basicTagged;
   }, [components]);
 
-  // Update real-time display when selection changes
+  // Update real-time display when selection or mode changes
   useEffect(() => {
     if (selectedIds.length === 1) {
       const comp = taggedComponents.find(c => c.id === selectedIds[0]);
       if (comp) {
-        setRealTimeTransform({
-          x: Math.round(comp.rotation_x || 0),
-          y: Math.round(comp.rotation_y || 0),
-          z: Math.round(comp.rotation_z || 0)
-        });
+        if (transformMode === 'translate') {
+          setRealTimeTransform({
+            x: parseFloat((comp.position_x || 0).toFixed(2)),
+            y: parseFloat((comp.position_y || 0).toFixed(2)),
+            z: parseFloat((comp.position_z || 0).toFixed(2))
+          });
+        } else {
+          setRealTimeTransform({
+            x: Math.round(comp.rotation_x || 0),
+            y: Math.round(comp.rotation_y || 0),
+            z: Math.round(comp.rotation_z || 0)
+          });
+        }
       }
     } else {
       setRealTimeTransform(null);
     }
-  }, [selectedIds, components]);
+  }, [selectedIds, components, transformMode]);
+
 
   // Expose resetAllViews() and captureViews() to parent (for PDF export)
   useImperativeHandle(ref, () => ({
@@ -1203,7 +1258,6 @@ const Scene3D = forwardRef(function Scene3D({
             onPlaceComponent={onPlaceComponent}
             transformMode={transformMode}
             darkMode={darkMode}
-            blueprintMode={blueprintMode}
             isCapture={false}
             setResetHandler={(handler) => { resetHandlers.current[viewId] = handler; }}
             setZoomHandlers={(handlers) => { zoomHandlers.current[viewId] = handlers; }}
@@ -1211,56 +1265,67 @@ const Scene3D = forwardRef(function Scene3D({
             isLocked={isLocked}
             suppressLabels={suppressLabels}
             onTransform={(info) => setRealTimeTransform(info)}
-            performanceMode={performanceMode}
             connectionMode={connectionMode}
             selectedSockets={selectedSockets}
             onSocketClick={onSocketClick}
           />
         </SceneErrorBoundary>
 
-        {/* Rotation Angle Display (HUD) */}
+        {/* Transform HUD (Bottom Right) */}
         {index === 0 && realTimeTransform && (
-          <div className="absolute bottom-6 right-6 z-30 flex gap-1 animate-in slide-in-from-bottom-2 duration-300">
-            {['X', 'Y', 'Z'].map(axis => (
-              <div
-                key={axis}
-                className="flex flex-col items-center bg-slate-900/80 backdrop-blur-md border border-slate-700/50 rounded-lg p-1.5 min-w-[44px] shadow-xl group/hud-item hover:bg-slate-800 transition-colors"
-              >
-                <span className={`text-[8px] font-black mb-0.5 ${axis === 'X' ? 'text-rose-500' : axis === 'Y' ? 'text-emerald-500' : 'text-blue-500'}`}>{axis}</span>
-                <input
-                  type="text"
-                  className="bg-transparent text-white font-mono text-[10px] font-bold leading-none w-full text-center outline-none focus:text-blue-400"
-                  value={(realTimeTransform[axis.toLowerCase()] ?? 0) + '°'}
-                  onChange={(e) => {
-                    const val = (e.target.value || '').replace('°', '');
-                    setRealTimeTransform(prev => ({ ...prev, [axis.toLowerCase()]: val }));
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.target.blur();
-                    }
-                  }}
-                  onBlur={(e) => {
-                    const numVal = parseFloat(e.target.value.replace('°', ''));
-                    if (!isNaN(numVal) && selectedIds.length === 1) {
-                      const comp = components.find(c => c.id === selectedIds[0]);
-                      if (comp) {
-                        onUpdateComponent({
-                          ...comp,
-                          [`rotation_${axis.toLowerCase()}`]: numVal
-                        });
+          <div className="absolute bottom-6 right-20 z-30 flex gap-1 animate-in slide-in-from-bottom-2 duration-300">
+            {['X', 'Y', 'Z'].map(axis => {
+              const val = realTimeTransform[axis.toLowerCase()] ?? 0;
+              const suffix = transformMode === 'rotate' ? '°' : 'm';
+              const displayVal = transformMode === 'translate' ? Number(val).toFixed(2) : val;
+
+              return (
+                <div
+                  key={axis}
+                  className="flex flex-col items-center bg-slate-900/80 backdrop-blur-md border border-slate-700/50 rounded-lg p-1.5 min-w-[50px] shadow-xl group/hud-item hover:bg-slate-800 transition-colors"
+                >
+                  <span className={`text-[8px] font-black mb-0.5 ${axis === 'X' ? 'text-rose-500' : axis === 'Y' ? 'text-emerald-500' : 'text-blue-500'}`}>{axis}</span>
+                  <input
+                    type="text"
+                    className="bg-transparent text-white font-mono text-[10px] font-bold leading-none w-full text-center outline-none focus:text-blue-400"
+                    value={displayVal + suffix}
+                    onChange={(e) => {
+                      const inputVal = (e.target.value || '').replace(/[m°]/g, '');
+                      setRealTimeTransform(prev => ({ ...prev, [axis.toLowerCase()]: inputVal }));
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.target.blur();
                       }
-                    }
-                  }}
-                  onFocus={(e) => {
-                    // Select entire value excluding the degree symbol
-                    const val = String(realTimeTransform[axis.toLowerCase()]);
-                    e.target.value = val;
-                    e.target.select();
-                  }}
-                />
-              </div>
-            ))}
+                    }}
+                    onBlur={(e) => {
+                      const numVal = parseFloat(e.target.value.replace(/[m°]/g, ''));
+                      if (!isNaN(numVal) && selectedIds.length === 1) {
+                        const comp = components.find(c => c.id === selectedIds[0]);
+                        if (comp) {
+                          const propKey = transformMode === 'rotate' ? `rotation_${axis.toLowerCase()}` : `position_${axis.toLowerCase()}`;
+                          onUpdateComponent({
+                            ...comp,
+                            [propKey]: numVal
+                          });
+                        }
+                      }
+                    }}
+                    onFocus={(e) => {
+                      // Select entire value excluding the suffix
+                      const input = e.target;
+                      const text = input.value;
+                      const suffixIndex = text.search(/[m°]/);
+                      if (suffixIndex !== -1) {
+                        input.setSelectionRange(0, suffixIndex);
+                      } else {
+                        input.select();
+                      }
+                    }}
+                  />
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -1317,11 +1382,9 @@ const Scene3D = forwardRef(function Scene3D({
                 onPlaceComponent={() => { }}
                 transformMode={transformMode}
                 darkMode={false} // Blueprints are always light themed
-                blueprintMode={blueprintMode}
                 isCapture={true}
                 setResetHandler={(handler) => { captureHandlers.current[viewId] = handler; }}
                 isLocked={false} // Hidden capture views are never locked
-                performanceMode={performanceMode}
                 connectionMode={false}
                 selectedSockets={[]}
                 onSocketClick={() => { }}
@@ -1362,7 +1425,6 @@ const ViewportContent = ({
   onPlaceComponent,
   transformMode,
   darkMode,
-  blueprintMode,
   isCapture = false,
   setResetHandler,
   setZoomHandlers,
@@ -1370,7 +1432,6 @@ const ViewportContent = ({
   isLocked,
   suppressLabels = false,
   onTransform,
-  performanceMode = false,
   connectionMode = false,
   selectedSockets = [],
   onSocketClick,
@@ -1387,10 +1448,10 @@ const ViewportContent = ({
 
   return (
     <Canvas
-      gl={{ antialias: !performanceMode, preserveDrawingBuffer: true, alpha: true }}
-      dpr={isCapture ? 2 : (performanceMode ? 1 : Math.min(2, window.devicePixelRatio))} // Lower DPR in performance mode
-      shadows={!performanceMode}
-      frameloop={performanceMode ? "demand" : "always"}
+      gl={{ antialias: true, preserveDrawingBuffer: true, alpha: true }}
+      dpr={isCapture ? 2 : Math.min(2, window.devicePixelRatio)}
+      shadows={true}
+      frameloop="always"
       camera={config.camera === 'perspective' ? undefined : undefined} // Not needed, ortho/persp handle it
       onContextMenu={(e) => e.preventDefault()}
       onPointerMissed={(e) => {
@@ -1418,14 +1479,7 @@ const ViewportContent = ({
           <GizmoViewport labelColor="white" axisColors={['#f43f5e', '#10b981', '#3b82f6']} />
         </GizmoHelper>
       )}
-      {blueprintMode && viewId === 'iso' && (
-        <Html position={[-10, 8, 0]} style={{ pointerEvents: 'none' }}>
-          <div className="flex flex-col opacity-80" style={{ fontFamily: 'monospace' }}>
-            <div className="text-xl font-bold text-slate-900 tracking-widest uppercase">3D Perspective</div>
-            <div className="h-[2px] w-24 bg-slate-900 mt-1"></div>
-          </div>
-        </Html>
-      )}
+      {/* No Blueprint Label */}
       <SharedSceneElements
         components={components}
         selectedIds={selectedIds}
@@ -1443,14 +1497,12 @@ const ViewportContent = ({
         transformMode={transformMode}
         viewMode={viewId}
         darkMode={darkMode}
-        blueprintMode={blueprintMode}
         isCapture={isCapture}
         placingTemplate={placingTemplate}
         isDragging={isDragging}
         isTransforming={isTransforming}
         suppressLabels={suppressLabels}
         onTransform={onTransform}
-        performanceMode={performanceMode}
         isLocked={isLocked}
         connectionMode={connectionMode}
         selectedSockets={selectedSockets}

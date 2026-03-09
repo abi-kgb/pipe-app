@@ -184,16 +184,7 @@ export default function BoundingBoxGizmo({ component, onUpdate }) {
                 sideMultiplier={-1}
             />
 
-            <Billboard position={[halfWid + 0.3, 0, 0]}>
-                <Text fontSize={0.2} color="black" outlineWidth={0.02} outlineColor="white">
-                    {(radius * 2).toFixed(2)}
-                </Text>
-            </Billboard>
-            <Billboard position={[0, halfLen + 0.2, 0]}>
-                <Text fontSize={0.2} color="black" outlineWidth={0.02} outlineColor="white">
-                    {length.toFixed(2)}
-                </Text>
-            </Billboard>
+            {/* Dimension labels removed per user request */}
         </group>
     );
 }

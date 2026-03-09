@@ -6,6 +6,86 @@ import { COMPONENT_DEFINITIONS } from '../config/componentDefinitions';
  * Checks if a candidate placement intersects with any existing components.
  * Refined to check multiple points (center + sockets) for better accuracy with fittings.
  */
+/**
+ * distance squared between point and segment
+ */
+const distPointToSegmentSq = (p, s1, s2) => {
+    const l2 = s1.distanceToSquared(s2);
+    if (l2 === 0) return p.distanceToSquared(s1);
+    const d1 = s2.clone().sub(s1);
+    const d2 = p.clone().sub(s1);
+    let t = d2.dot(d1) / l2;
+    t = Math.max(0, Math.min(1, t));
+    const projection = s1.clone().add(d1.multiplyScalar(t));
+    return p.distanceToSquared(projection);
+};
+
+/**
+ * Distance between two line segments (p1-p2) and (p3-p4)
+ * Based on Dan Sunday's algorithm
+ */
+const distBetweenSegments = (p1, p2, p3, p4) => {
+    const u = p2.clone().sub(p1);
+    const v = p4.clone().sub(p3);
+    const w = p1.clone().sub(p3);
+    const a = u.dot(u);
+    const b = u.dot(v);
+    const c = v.dot(v);
+    const d = u.dot(w);
+    const e = v.dot(w);
+    const D = a * c - b * b;
+    let sc, sN, sD = D;
+    let tc, tN, tD = D;
+
+    if (D < 0.0001) {
+        sN = 0.0;
+        sD = 1.0;
+        tN = e;
+        tD = c;
+    } else {
+        sN = (b * e - c * d);
+        tN = (a * e - b * d);
+        if (sN < 0.0) {
+            sN = 0.0;
+            tN = e;
+            tD = c;
+        } else if (sN > sD) {
+            sN = sD;
+            tN = e + b;
+            tD = c;
+        }
+    }
+
+    if (tN < 0.0) {
+        tN = 0.0;
+        if (-d < 0.0) sN = 0.0;
+        else if (-d > a) sN = sD;
+        else {
+            sN = -d;
+            sD = a;
+        }
+    } else if (tN > tD) {
+        tN = tD;
+        if ((-d + b) < 0.0) sN = 0;
+        else if ((-d + b) > a) sN = sD;
+        else {
+            sN = (-d + b);
+            sD = a;
+        }
+    }
+
+    sc = (Math.abs(sN) < 0.0001 ? 0.0 : sN / sD);
+    tc = (Math.abs(tN) < 0.0001 ? 0.0 : tN / tD);
+
+    const dP = w.clone().add(u.clone().multiplyScalar(sc)).sub(v.clone().multiplyScalar(tc));
+    return dP.length();
+};
+
+/**
+ * checkIntersection
+ * Checks if a candidate placement intersects with any existing components.
+ * Robust check using line segments for pipes and point-vs-segment for others.
+ */
 export const checkIntersection = (
     position, // THREE.Vector3
     rotation, // THREE.Euler
@@ -27,25 +107,35 @@ export const checkIntersection = (
 
     const quat = new THREE.Quaternion().setFromEuler(rotation);
 
-    // Points to check: Center + all socket positions in world space
+    // Represent new component as points/segment
+    const isPipe = componentType === 'straight' || componentType === 'vertical';
+    let pStart, pEnd;
+
+    if (isPipe) {
+        pStart = new THREE.Vector3(0, 0, 0).applyQuaternion(quat).add(position);
+        pEnd = new THREE.Vector3(0, length, 0).applyQuaternion(quat).add(position);
+    }
+
     const pointsToCheck = [position.clone()];
     for (const socket of def.sockets) {
-        // Approximate socket position based on definition and properties
         const sPos = socket.position.clone();
-        if (componentType === 'straight' || componentType === 'vertical') {
-            sPos.y = (length / 2) * (socket.position.y > 0 ? 1 : -1);
+        if (isPipe) {
+            sPos.y = (socket.position.y + 1) * (length / 2);
         } else if (componentType === 'industrial-tank') {
-            const hScale = (od + 0.3) / 2.2;
+            const hScale = (od + 0.5) / 2.2;
             const vScale = length / 4.0;
+            const iConeHeight = length * 0.25;
             sPos.x *= hScale;
             sPos.z *= hScale;
-            sPos.y *= vScale;
+            sPos.y = (sPos.y * vScale) + iConeHeight;
+        } else if (componentType === 'tank') {
+            sPos.y = (socket.position.y * (length / 2)) + (length / 2);
+            sPos.x *= radiusScale;
+            sPos.z *= radiusScale;
         } else {
             sPos.multiplyScalar(radiusScale);
         }
-
-        const worldSocketPos = sPos.applyQuaternion(quat).add(position);
-        pointsToCheck.push(worldSocketPos);
+        pointsToCheck.push(sPos.applyQuaternion(quat).add(position));
     }
 
     // Broad phase optimization
@@ -53,27 +143,43 @@ export const checkIntersection = (
 
     for (const comp of existingComponents) {
         if (comp.id === excludeId) continue;
-        if (comp.component_type === 'wall') continue; // SKIP WALLS FOR COLLISION
+        if (comp.component_type === 'wall') continue;
 
         const otherDef = COMPONENT_DEFINITIONS[comp.component_type];
         if (!otherDef) continue;
 
         const otherPos = new THREE.Vector3(comp.position_x, comp.position_y, comp.position_z);
+        const otherQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(comp.rotation_x * Math.PI / 180, comp.rotation_y * Math.PI / 180, comp.rotation_z * Math.PI / 180));
         const otherRadiusScale = comp.properties?.radiusScale || 1;
         const otherLength = comp.properties?.length || 2;
-        const otherOD = comp.properties?.od || (0.30 * otherRadiusScale);
-        const otherRadius = otherOD / 2;
+        const otherRadius = (comp.properties?.od || (0.30 * otherRadiusScale)) / 2;
 
         const distToCenter = position.distanceTo(otherPos);
-        const maxOtherDim = Math.max(otherOD, otherLength) * 1.5;
-
+        const maxOtherDim = Math.max(otherRadius * 2, otherLength) * 1.5;
         if (distToCenter > (maxPartDim + maxOtherDim)) continue;
 
-        for (const p of pointsToCheck) {
-            const distToPoint = p.distanceTo(otherPos);
-            const collisionThreshold = (radius + otherRadius) * 0.9;
-            if (distToPoint < collisionThreshold) {
-                return true;
+        const isOtherPipe = comp.component_type === 'straight' || comp.component_type === 'vertical';
+        const collisionThreshold = (radius + otherRadius) * 0.95; // Slightly lax to allow snapping
+
+        if (isPipe && isOtherPipe) {
+            // Segment vs Segment
+            const opStart = new THREE.Vector3(0, 0, 0).applyQuaternion(otherQuat).add(otherPos);
+            const opEnd = new THREE.Vector3(0, otherLength, 0).applyQuaternion(otherQuat).add(otherPos);
+            if (distBetweenSegments(pStart, pEnd, opStart, opEnd) < collisionThreshold) return true;
+        } else if (isPipe) {
+            // Segment (new) vs Point (other)
+            if (Math.sqrt(distPointToSegmentSq(otherPos, pStart, pEnd)) < collisionThreshold) return true;
+        } else if (isOtherPipe) {
+            // Point (new) vs Segment (other)
+            const opStart = new THREE.Vector3(0, 0, 0).applyQuaternion(otherQuat).add(otherPos);
+            const opEnd = new THREE.Vector3(0, otherLength, 0).applyQuaternion(otherQuat).add(otherPos);
+            for (const p of pointsToCheck) {
+                if (Math.sqrt(distPointToSegmentSq(p, opStart, opEnd)) < collisionThreshold) return true;
+            }
+        } else {
+            // Point vs Point (default)
+            for (const p of pointsToCheck) {
+                if (p.distanceTo(otherPos) < collisionThreshold) return true;
             }
         }
     }
@@ -104,31 +210,25 @@ export const findSnapPoint = (
         switch (component.component_type) {
             case 'straight':
             case 'vertical':
-                // For straight pipes, Y position is half the length
-                pos.y = (length / 2) * (socket.position.y > 0 ? 1 : -1);
-                break;
-            case 'elbow':
-            case 'elbow-45':
-            case 't-joint':
-            case 'valve':
-            case 'filter':
-                const hScaleGen = ((component.properties?.od || 2.2) + 0.3) / 2.2;
-                const vScaleGen = (component.properties?.length || 4.0) / 4.0;
-                pos.x *= hScaleGen;
-                pos.z *= hScaleGen;
-                pos.y *= vScaleGen;
+                // New system: Maps -1->0, 0->L/2, 1->L
+                pos.y = (socket.position.y + 1) * (length / 2);
                 break;
             case 'industrial-tank':
-                // +0.5m visual padding — match actual nozzle tip positions
-                const hScale = ((component.properties?.od || 2.2) + 0.5) / 2.2;
-                const vScale = (component.properties?.length || 4.0) / 4.0;
-                pos.x *= hScale;
-                pos.z *= hScale;
-                pos.y *= vScale;
+                const hScaleGen = ((component.properties?.od || 2.2) + 0.5) / 2.2;
+                const vScaleGen = (component.properties?.length || 4.0) / 4.0;
+                const iConeH = (component.properties?.length || 4.0) * 0.25;
+                pos.x *= hScaleGen;
+                pos.z *= hScaleGen;
+                pos.y = (pos.y * vScaleGen) + iConeH;
                 break;
             case 'tank':
-            case 'cap':
-                // Most fittings scale uniformly with radiusScale
+                const tHeight = component.properties?.length || 2.0;
+                pos.y = (socket.position.y * (tHeight / 2)) + (tHeight / 2);
+                pos.x *= radiusScale;
+                pos.z *= radiusScale;
+                break;
+            default:
+                // ALL other Fittings (elbow, tee, valve, reducer, flange, etc.) scale by radiusScale
                 pos.multiplyScalar(radiusScale);
                 break;
         }
@@ -190,7 +290,8 @@ export const findSnapPoint = (
                 rotation: rot,
                 isValid: true,
                 isSnappedToOrigin: true,
-                isIntersecting
+                isIntersecting,
+                snapSocketWorldPos: originPoint.clone()
             };
         }
 
@@ -200,18 +301,42 @@ export const findSnapPoint = (
             position: target,
             rotation: rot,
             isValid: true,
-            isIntersecting
+            isIntersecting,
+            snapSocketWorldPos: target.clone()
         };
     };
 
     if (components.length === 0) {
-        return getFallbackSnap() || { position: new THREE.Vector3(), rotation: new THREE.Euler(), isValid: false, isIntersecting: false };
+        const fallback = getFallbackSnap();
+        if (fallback) return fallback;
+        return {
+            position: new THREE.Vector3(),
+            rotation: new THREE.Euler(),
+            isValid: false,
+            isIntersecting: false,
+            snapSocketWorldPos: new THREE.Vector3()
+        };
     }
 
     const placingDef = COMPONENT_DEFINITIONS[effectiveType];
-    if (!placingDef) return getFallbackSnap() || { position: new THREE.Vector3(), rotation: new THREE.Euler(), isValid: false, isIntersecting: false };
+    if (!placingDef) {
+        const fallback = getFallbackSnap();
+        if (fallback) return fallback;
+        return {
+            position: new THREE.Vector3(),
+            rotation: new THREE.Euler(),
+            isValid: false,
+            isIntersecting: false,
+            snapSocketWorldPos: new THREE.Vector3()
+        };
+    }
 
-    let bestSnap = { position: new THREE.Vector3(), rotation: new THREE.Euler(), isValid: false };
+    let bestSnap = {
+        position: new THREE.Vector3(),
+        rotation: new THREE.Euler(),
+        isValid: false,
+        snapSocketWorldPos: new THREE.Vector3()
+    };
     let globalBestScore = Infinity;
 
     const ray = raycaster.ray;
@@ -364,8 +489,11 @@ export const findSnapPoint = (
                             rotation: candidateRot,
                             isValid: true,
                             targetComponentId: targetComp.id,
+                            targetSocketIndex: targetDef.sockets.indexOf(targetSocket),
+                            placingSocketIndex: placingDef.sockets.indexOf(plSocket),
                             isSnappedToSocket: true,
-                            isIntersecting
+                            isIntersecting,
+                            snapSocketWorldPos: worldTargetSocketPos.clone(), // actual contact point for bubble
                         };
                     }
                 }
@@ -376,6 +504,8 @@ export const findSnapPoint = (
     const finalResult = bestSnap.isValid ? bestSnap : (getFallbackSnap() || bestSnap);
     if (!finalResult.isSnappedToSocket) finalResult.isSnappedToSocket = false;
     if (finalResult.isIntersecting === undefined) finalResult.isIntersecting = false;
+    // For fallback (ground) snaps, the snap socket world pos is just the placement position
+    if (!finalResult.snapSocketWorldPos) finalResult.snapSocketWorldPos = finalResult.position.clone();
     return finalResult;
 };
 
@@ -511,16 +641,20 @@ export const calculateManualConnection = (compA, socketIdxA, compB, socketIdxB) 
         const radiusScale = component.properties?.radiusScale || 1;
         const pos = socket.position.clone();
         if (component.component_type === 'straight' || component.component_type === 'vertical') {
-            pos.y = (length / 2) * (socket.position.y > 0 ? 1 : -1);
+            pos.y = (socket.position.y + 1) * (length / 2);
         } else if (component.component_type === 'industrial-tank') {
-            const hScale = ((component.properties?.od || 2.2) + 0.3) / 2.2;
+            const hScale = ((component.properties?.od || 2.2) + 0.5) / 2.2;
             const vScale = (component.properties?.length || 4.0) / 4.0;
+            const iConeH = (component.properties?.length || 4.0) * 0.25;
             pos.x *= hScale;
             pos.z *= hScale;
-            pos.y *= vScale;
-        } else if (component.component_type === 'tank' || component.component_type === 'cap') {
-            pos.multiplyScalar(radiusScale);
+            pos.y = (pos.y * vScale) + iConeH;
+        } else if (component.component_type === 'tank') {
+            pos.y = (socket.position.y * (length / 2)) + (length / 2);
+            pos.x *= radiusScale;
+            pos.z *= radiusScale;
         } else {
+            // General fittings
             pos.multiplyScalar(radiusScale);
         }
         return pos;

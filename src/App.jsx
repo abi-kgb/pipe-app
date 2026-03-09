@@ -14,6 +14,7 @@ import * as XLSX from 'xlsx';
 import { calculateComponentMetrics, calculateComponentCost } from './utils/pricing';
 import AuthPage from './components/AuthPage';
 import { COMPONENT_DEFINITIONS } from './config/componentDefinitions';
+import InventoryManager from './components/InventoryManager';
 
 function App() {
   const [components, setComponents] = useState([]);
@@ -28,11 +29,7 @@ function App() {
   const [isLocked, setIsLocked] = useState(false);
   const [lastSaved, setLastSaved] = useState(Date.now());
   const [isSaving, setIsSaving] = useState(false);
-  const [blueprintMode, setBlueprintMode] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
-  const [performanceMode, setPerformanceMode] = useState(() => {
-    return localStorage.getItem('pipe3d_perf_mode') === 'true' || window.innerWidth < 800;
-  });
   const [connectionMode, setConnectionMode] = useState(false);
   const [selectedSockets, setSelectedSockets] = useState([]); // [{ componentId, socketIndex }]
   const [snapPivot, setSnapPivot] = useState(null); // { id: string, worldPos: Vector3, socketIndex: number, isAssembly: boolean }
@@ -44,6 +41,7 @@ function App() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
   const [showLibrary, setShowLibrary] = useState(window.innerWidth >= 1024);
   const [user, setUser] = useState(null);
+  const [showInventory, setShowInventory] = useState(false);
 
   // Track window resize for responsiveness
   useEffect(() => {
@@ -222,10 +220,6 @@ function App() {
     }
   }, [darkMode]);
 
-  useEffect(() => {
-    localStorage.setItem('pipe3d_perf_mode', performanceMode);
-  }, [performanceMode]);
-
   // Initial load from autosave
   useEffect(() => {
     try {
@@ -290,7 +284,7 @@ function App() {
     setSelectedIds([]);
   }, []);
 
-  const handlePlaceComponent = useCallback((position, rotation, properties = {}) => {
+  const handlePlaceComponent = useCallback((position, rotation, properties = {}, targetId = null, targetSocketIdx = null, placingSocketIdx = null) => {
     if (!placingType) return;
 
     // Debounce placement to prevent rapid-fire double components
@@ -302,7 +296,7 @@ function App() {
 
     // ASSEMBLY MODE: If the template has multiple parts
     if (placingTemplate?.isAssembly && placingTemplate.parts) {
-      const assemblyId = `ass_${Date.now()} `;
+      const assemblyId = `ass_${Date.now()}`;
 
       // Calculate assembly rotation (from snap)
       const assemblyQuat = new THREE.Quaternion().setFromEuler(
@@ -332,7 +326,7 @@ function App() {
           return {
             ...p,
             properties: { ...p.properties }, // Shallow clone properties
-            id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${Math.random()} `,
+            id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${Math.random()}`,
             assemblyId,
             position_x: position[0] + offsetVec.x,
             position_y: position[1] + offsetVec.y,
@@ -340,6 +334,7 @@ function App() {
             rotation_x: finalRot.x * (180 / Math.PI),
             rotation_y: finalRot.y * (180 / Math.PI),
             rotation_z: finalRot.z * (180 / Math.PI),
+            connections: []
           };
         });
         const finalComps = [...prev, ...newComps];
@@ -364,7 +359,8 @@ function App() {
       new THREE.Euler(rotation[0] * (Math.PI / 180), rotation[1] * (Math.PI / 180), rotation[2] * (Math.PI / 180)),
       placingType,
       finalProperties,
-      components
+      components,
+      targetId
     );
 
     if (isIntersecting) {
@@ -374,8 +370,9 @@ function App() {
       return;
     }
 
+    const componentId = `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const newComponent = {
-      id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)} `,
+      id: componentId,
       component_type: placingType,
       position_x: position[0],
       position_y: position[1],
@@ -383,20 +380,50 @@ function App() {
       rotation_x: rotation[0],
       rotation_y: rotation[1],
       rotation_z: rotation[2],
-      connections: [],
+      connections: targetId ? [{ targetId, targetSocketIdx, localSocketIdx: placingSocketIdx }] : [],
       properties: finalProperties,
     };
 
     setComponents(prev => {
-      const next = [...prev, newComponent];
+      let next = [...prev, newComponent];
+
+      // Also update the target component if we snapped to one
+      if (targetId) {
+        next = next.map(c => {
+          if (c.id === targetId) {
+            return {
+              ...c,
+              connections: [...(c.connections || []), { targetId: componentId, targetSocketIdx: placingSocketIdx, localSocketIdx: targetSocketIdx }]
+            };
+          }
+          return c;
+        });
+      }
+
       saveToHistory(next);
       return next;
     });
+
+    // --- MSSQL INVENTORY DECREMENT ---
+    const amount = placingType === 'straight' || placingType === 'vertical'
+      ? (properties.length || 2)
+      : 1;
+
+    fetch('http://localhost:5000/api/inventory/use', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        component_type: placingType,
+        material: finalProperties.material || 'pvc',
+        amount: amount
+      })
+    }).catch(err => console.error('Inventory Update Failed:', err));
+
     // Note: We clear placingType here to return to selection mode after placement.
     setPlacingType(null);
     setPlacingTemplate(null);
     setSelectedIds([]);
-  }, [placingType, placingTemplate]);
+  }, [placingType, placingTemplate, components, saveToHistory]);
 
 
   const handleUpdateComponent = useCallback((updatedComp) => {
@@ -410,11 +437,19 @@ function App() {
           if (def && def.sockets[snapPivot.socketIndex]) {
             let socketLocalPos = def.sockets[snapPivot.socketIndex].position.clone();
             if (oldComp.component_type === 'industrial-tank') {
-              const hScale = ((oldComp.properties?.od || 2.2) + 0.3) / 2.2;
+              const hScale = ((oldComp.properties?.od || 2.2) + 0.5) / 2.2;
               const vScale = (oldComp.properties?.length || 4.0) / 4.0;
+              const iConeH = (oldComp.properties?.length || 4.0) * 0.25;
               socketLocalPos.x *= hScale;
               socketLocalPos.z *= hScale;
-              socketLocalPos.y *= vScale;
+              socketLocalPos.y = (socketLocalPos.y * vScale) + iConeH;
+            } else if (oldComp.component_type === 'straight' || oldComp.component_type === 'vertical') {
+              socketLocalPos.y = (socketLocalPos.y + 1) * ((oldComp.properties?.length || 2.0) / 2);
+            } else if (oldComp.component_type === 'tank') {
+              const tHeight = oldComp.properties?.length || 2.0;
+              socketLocalPos.y = (socketLocalPos.y * (tHeight / 2)) + (tHeight / 2);
+              socketLocalPos.x *= (oldComp.properties?.radiusScale || 1);
+              socketLocalPos.z *= (oldComp.properties?.radiusScale || 1);
             } else {
               socketLocalPos.multiplyScalar(oldComp.properties?.radiusScale || 1);
             }
@@ -463,11 +498,19 @@ function App() {
             if (def && def.sockets[snapPivot.socketIndex]) {
               let socketLocalPos = def.sockets[snapPivot.socketIndex].position.clone();
               if (oldLead.component_type === 'industrial-tank') {
-                const hScale = ((oldLead.properties?.od || 2.2) + 0.3) / 2.2;
+                const hScale = ((oldLead.properties?.od || 2.2) + 0.5) / 2.2;
                 const vScale = (oldLead.properties?.length || 4.0) / 4.0;
+                const iConeH = (oldLead.properties?.length || 4.0) * 0.25;
                 socketLocalPos.x *= hScale;
                 socketLocalPos.z *= hScale;
-                socketLocalPos.y *= vScale;
+                socketLocalPos.y = (socketLocalPos.y * vScale) + iConeH;
+              } else if (oldLead.component_type === 'straight' || oldLead.component_type === 'vertical') {
+                socketLocalPos.y = (socketLocalPos.y + 1) * ((oldLead.properties?.length || 2.0) / 2);
+              } else if (oldLead.component_type === 'tank') {
+                const tHeight = oldLead.properties?.length || 2.0;
+                socketLocalPos.y = (socketLocalPos.y * (tHeight / 2)) + (tHeight / 2);
+                socketLocalPos.x *= (oldLead.properties?.radiusScale || 1);
+                socketLocalPos.z *= (oldLead.properties?.radiusScale || 1);
               } else {
                 socketLocalPos.multiplyScalar(oldLead.properties?.radiusScale || 1);
               }
@@ -511,7 +554,26 @@ function App() {
       }
 
       const updatesMap = new Map(finalUpdates.map(c => [c.id, c]));
-      const next = prev.map(comp => updatesMap.has(comp.id) ? updatesMap.get(comp.id) : comp);
+      let next = prev.map(comp => updatesMap.has(comp.id) ? updatesMap.get(comp.id) : comp);
+
+      // --- CONNECTION CLEANUP ON MOVE/ROTATE ---
+      // If a component in finalUpdates was moved, clear its connections and its partners
+      const movedIds = finalUpdates.map(u => u.id);
+      next = next.map(comp => {
+        // 1. If this component itself was moved, clear its own connections
+        if (movedIds.includes(comp.id)) {
+          return { ...comp, connections: [] };
+        }
+        // 2. If this component was connected to something that moved, clear those specific connections
+        if (comp.connections && comp.connections.length > 0) {
+          const validConnections = comp.connections.filter(conn => !movedIds.includes(conn.targetId));
+          if (validConnections.length !== comp.connections.length) {
+            return { ...comp, connections: validConnections };
+          }
+        }
+        return comp;
+      });
+
       saveToHistory(next);
       return next;
     });
@@ -519,7 +581,20 @@ function App() {
 
   const handleDeleteComponents = useCallback((ids) => {
     setComponents(prev => {
-      const next = prev.filter(comp => !ids.includes(comp.id));
+      // 1. Remove the components themselves
+      let next = prev.filter(comp => !ids.includes(comp.id));
+
+      // 2. Clean up connections in remaining components
+      next = next.map(comp => {
+        if (comp.connections && comp.connections.length > 0) {
+          const remainingConnections = comp.connections.filter(conn => !ids.includes(conn.targetId));
+          if (remainingConnections.length !== comp.connections.length) {
+            return { ...comp, connections: remainingConnections };
+          }
+        }
+        return comp;
+      });
+
       saveToHistory(next);
       return next;
     });
@@ -634,8 +709,21 @@ function App() {
                   rotation_x: finalRot.x * (180 / Math.PI),
                   rotation_y: finalRot.y * (180 / Math.PI),
                   rotation_z: finalRot.z * (180 / Math.PI),
+                  // Record connection in source (or assembly members) for visual holes
+                  connections: (c.id === source.componentId)
+                    ? [...(c.connections || []), { targetId: target.componentId, targetSocketIdx: target.socketIndex, localSocketIdx: source.socketIndex }]
+                    : (c.connections || [])
                 };
               }
+
+              // Record connection in target for visual holes
+              if (c.id === target.componentId) {
+                return {
+                  ...c,
+                  connections: [...(c.connections || []), { targetId: source.componentId, targetSocketIdx: source.socketIndex, localSocketIdx: target.socketIndex }]
+                };
+              }
+
               return c;
             });
 
@@ -671,6 +759,7 @@ function App() {
         ...original,
         properties: { ...original.properties }, // Shallow clone properties
         id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)} `,
+        connections: [], // Clones start without connections
         // Offset the clone slightly so it doesn't overlap perfectly
         position_x: original.position_x + 0.5,
         position_y: original.position_y,
@@ -1007,11 +1096,11 @@ function App() {
         pdf.rect(imgX, imgY, imgW, imgH);
       };
 
-      // ── Step 1: capture all viewports (Blueprint Style) ────────────────
+      // ── Step 1: capture all viewports ────────────────
       let blueprintImages = {};
       if (sceneRef.current?.captureViews) {
-        console.log('Pipe3D: Capturing Blueprint views...');
-        blueprintImages = await sceneRef.current.captureViews('blueprint');
+        console.log('Pipe3D: Capturing views...');
+        blueprintImages = await sceneRef.current.captureViews();
       }
 
       // First Set: Blueprint Drawings
@@ -1124,10 +1213,9 @@ function App() {
         componentCount={components.length}
         totalCost={totalCost}
         onShowMaterials={() => setShowMaterials(true)}
+        onShowInventory={() => setShowInventory(true)}
         darkMode={darkMode}
         onToggleTheme={() => setDarkMode(!darkMode)}
-        blueprintMode={blueprintMode}
-        onToggleBlueprint={() => setBlueprintMode(!blueprintMode)}
         isMobile={isMobile}
         onToggleLibrary={() => setShowLibrary(!showLibrary)}
         showLibrary={showLibrary}
@@ -1140,8 +1228,6 @@ function App() {
         isSaving={isSaving}
         user={user}
         onLogout={() => setUser(null)}
-        performanceMode={performanceMode}
-        onTogglePerformance={() => setPerformanceMode(!performanceMode)}
         connectionMode={connectionMode}
         onToggleConnection={() => {
           setConnectionMode(!connectionMode);
@@ -1158,8 +1244,15 @@ function App() {
         />
       )}
 
+      {showInventory && (
+        <InventoryManager
+          isOpen={showInventory}
+          onClose={() => setShowInventory(false)}
+          user={user}
+        />
+      )}
+
       <main className="flex-1 relative overflow-hidden bg-slate-50">
-        {blueprintMode && <div className="absolute inset-0 z-[1] paper-texture pointer-events-none" />}
         <div className="absolute inset-0">
           {isMobile ? (
             <div className="w-full h-full flex flex-col relative">
@@ -1183,10 +1276,8 @@ function App() {
                   onSetTransformMode={setTransformMode}
                   designName={designName}
                   darkMode={darkMode}
-                  blueprintMode={blueprintMode}
                   isLocked={isLocked}
                   isCapturing={isCapturing}
-                  performanceMode={performanceMode}
                   connectionMode={connectionMode}
                   selectedSockets={selectedSockets}
                   onSocketClick={handleSocketClick}
@@ -1288,10 +1379,8 @@ function App() {
                     onSetTransformMode={setTransformMode}
                     designName={designName}
                     darkMode={darkMode}
-                    blueprintMode={blueprintMode}
                     isLocked={isLocked}
                     isCapturing={isCapturing}
-                    performanceMode={performanceMode}
                     connectionMode={connectionMode}
                     selectedSockets={selectedSockets}
                     onSocketClick={handleSocketClick}

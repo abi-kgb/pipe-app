@@ -134,8 +134,8 @@ export const COMPONENT_DEFINITIONS = {
         defaultOD: 0.34,
         defaultWT: 0.01,
         sockets: [
-            { position: new THREE.Vector3(0, 0.25, 0), direction: new THREE.Vector3(0, 1, 0) },
-            { position: new THREE.Vector3(0, -0.25, 0), direction: new THREE.Vector3(0, -1, 0) },
+            { position: new THREE.Vector3(0, 0.3, 0), direction: new THREE.Vector3(0, 1, 0) },
+            { position: new THREE.Vector3(0, -0.3, 0), direction: new THREE.Vector3(0, -1, 0) },
         ],
     },
     plug: {
@@ -238,14 +238,7 @@ export const COMPONENT_DEFINITIONS = {
         defaultOD: 2.2,
         defaultWT: 0.08,
         defaultMaterial: 'industrial_yellow',
-        sockets: [
-            { position: new THREE.Vector3(0, 3.5, 0), direction: new THREE.Vector3(0, 1, 0) }, // TOP
-            { position: new THREE.Vector3(0, -2.0, 0), direction: new THREE.Vector3(0, -1, 0) }, // BOTTOM
-            { position: new THREE.Vector3(-1.1, 1.5, 0), direction: new THREE.Vector3(-1, 0, 0) }, // LEFT TOP
-            { position: new THREE.Vector3(-1.1, 0.5, 0), direction: new THREE.Vector3(-1, 0, 0) }, // LEFT BOTTOM
-            { position: new THREE.Vector3(1.1, 1.5, 0), direction: new THREE.Vector3(1, 0, 0) }, // RIGHT TOP
-            { position: new THREE.Vector3(1.1, 0.5, 0), direction: new THREE.Vector3(1, 0, 0) }, // RIGHT BOTTOM
-        ],
+        sockets: [],
     },
     wall: {
         type: 'wall',

@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Save, Plus, Info, Sun, Moon, List, Undo, Redo, Lock, Unlock, ChevronDown, FileText, Table, MousePointer2, CheckCircle2, RotateCw, Zap, Plug } from 'lucide-react';
+import { Save, Plus, Info, Sun, Moon, List, Undo, Redo, Lock, Unlock, ChevronDown, FileText, Table, MousePointer2, CheckCircle2, RotateCw, Zap, Plug, Database } from 'lucide-react';
 import { formatIndianNumber } from '../utils/pricing';
 
 export default function Toolbar({
@@ -10,6 +10,7 @@ export default function Toolbar({
   componentCount,
   totalCost,
   onShowMaterials,
+  onShowInventory,
   darkMode,
   onToggleTheme,
   isMobile,
@@ -25,10 +26,6 @@ export default function Toolbar({
   isSaving,
   user,
   onLogout,
-  blueprintMode,
-  onToggleBlueprint,
-  performanceMode,
-  onTogglePerformance,
   connectionMode,
   onToggleConnection
 }) {
@@ -89,14 +86,6 @@ export default function Toolbar({
         {!isMobile && (
           <>
             <button
-              onClick={onTogglePerformance}
-              className={`p-2.5 rounded-xl border transition-all active:scale-95 shadow-sm ${performanceMode ? 'bg-amber-600 border-amber-500 text-white shadow-lg shadow-amber-500/20' : (darkMode ? 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700' : 'bg-white border-blue-100 text-slate-400 hover:bg-blue-50')}`}
-              title={performanceMode ? "Disable High Performance Mode (Show All Visuals)" : "Enable High Performance Mode (Faster on slow PCs)"}
-            >
-              <Zap size={18} className={performanceMode ? 'animate-pulse' : ''} />
-            </button>
-
-            <button
               onClick={onToggleTheme}
               className={`p-2.5 rounded-xl border transition-all active:scale-95 shadow-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-yellow-400 hover:bg-slate-700' : 'bg-white border-blue-100 text-slate-400 hover:text-blue-50/50'}`}
               title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
@@ -105,11 +94,11 @@ export default function Toolbar({
             </button>
 
             <button
-              onClick={() => onToggleBlueprint()}
-              className={`p-2.5 rounded-xl border transition-all active:scale-95 shadow-sm ${blueprintMode ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/20' : (darkMode ? 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700' : 'bg-white border-blue-100 text-slate-400 hover:text-blue-50/50')}`}
-              title={blueprintMode ? "Back to Workspace" : "Blueprint Mode"}
+              onClick={onShowInventory}
+              className={`p-2.5 rounded-xl border transition-all active:scale-95 shadow-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-blue-400 hover:bg-slate-700' : 'bg-white border-blue-100 text-slate-400 hover:bg-blue-50 shadow-blue-500/10'}`}
+              title="Inventory Manager (MSSQL)"
             >
-              <RotateCw size={18} className={blueprintMode ? 'rotate-45 transition-transform' : 'transition-transform'} />
+              <Database size={18} />
             </button>
           </>
         )}
@@ -153,9 +142,8 @@ export default function Toolbar({
             className={`p-2 rounded-lg transition-all active:scale-95 ${connectionMode
               ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-500/20'
               : (darkMode ? 'text-slate-200 hover:bg-slate-800' : 'text-slate-600 hover:bg-blue-50')
-              } ${blueprintMode ? 'opacity-20 cursor-not-allowed' : ''}`}
+              }`}
             title={connectionMode ? "Cancel Connection" : "Socket-to-Socket Connection"}
-            disabled={blueprintMode}
           >
             <div className="flex items-center gap-1.5">
               <Plug size={18} className={connectionMode ? "rotate-90 transition-transform text-white" : "transition-transform"} />
