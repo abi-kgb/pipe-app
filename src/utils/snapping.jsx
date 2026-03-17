@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COMPONENT_DEFINITIONS } from '../config/componentDefinitions';
+import { COMPONENT_DEFINITIONS } from '../config/componentDefinitions.jsx';
 
 /**
  * checkIntersection
@@ -101,8 +101,8 @@ export const checkIntersection = (
     if (!def) return false;
 
     const radiusScale = properties?.radiusScale || 1;
-    const length = properties?.length || 2;
-    const od = properties?.od || (0.30 * radiusScale);
+    const length = properties?.length || def.defaultLength || 2;
+    const od = properties?.od || def.defaultOD || (0.30 * radiusScale);
     const radius = od / 2;
 
     const quat = new THREE.Quaternion().setFromEuler(rotation);
@@ -122,12 +122,12 @@ export const checkIntersection = (
         if (isPipe) {
             sPos.y = (socket.position.y + 1) * (length / 2);
         } else if (componentType === 'industrial-tank') {
-            const hScale = (od + 0.5) / 2.2;
+            const hScale = (od + 0.5) / 2.7; // denominator matches default tankOD in PipeComponent
             const vScale = length / 4.0;
             const iConeHeight = length * 0.25;
             sPos.x *= hScale;
             sPos.z *= hScale;
-            sPos.y = (sPos.y * vScale) + iConeHeight;
+            sPos.y = (sPos.y * vScale); // remove + iConeHeight as sPos is absolute from def
         } else if (componentType === 'tank') {
             sPos.y = (socket.position.y * (length / 2)) + (length / 2);
             sPos.x *= radiusScale;
@@ -148,18 +148,23 @@ export const checkIntersection = (
         const otherDef = COMPONENT_DEFINITIONS[comp.component_type];
         if (!otherDef) continue;
 
-        const otherPos = new THREE.Vector3(comp.position_x, comp.position_y, comp.position_z);
-        const otherQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(comp.rotation_x * Math.PI / 180, comp.rotation_y * Math.PI / 180, comp.rotation_z * Math.PI / 180));
-        const otherRadiusScale = comp.properties?.radiusScale || 1;
-        const otherLength = comp.properties?.length || 2;
-        const otherRadius = (comp.properties?.od || (0.30 * otherRadiusScale)) / 2;
+        const otherPos = new THREE.Vector3(Number(comp.position_x) || 0, Number(comp.position_y) || 0, Number(comp.position_z) || 0);
+        const otherQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+            (Number(comp.rotation_x) || 0) * Math.PI / 180,
+            (Number(comp.rotation_y) || 0) * Math.PI / 180,
+            (Number(comp.rotation_z) || 0) * Math.PI / 180
+        ));
+        const otherRadiusScale = Number(comp.properties?.radiusScale) || 1;
+        const otherLength = Number(comp.properties?.length) || 2;
+        const otherRadius = (Number(comp.properties?.od) || (0.30 * otherRadiusScale)) / 2;
 
         const distToCenter = position.distanceTo(otherPos);
         const maxOtherDim = Math.max(otherRadius * 2, otherLength) * 1.5;
         if (distToCenter > (maxPartDim + maxOtherDim)) continue;
 
         const isOtherPipe = comp.component_type === 'straight' || comp.component_type === 'vertical';
-        const collisionThreshold = (radius + otherRadius) * 0.95; // Slightly lax to allow snapping
+        // Relaxed threshold to allow connection alignment without triggering collision
+        const collisionThreshold = (radius + otherRadius) * 0.80; 
 
         if (isPipe && isOtherPipe) {
             // Segment vs Segment
@@ -213,20 +218,23 @@ export const findSnapPoint = (
                 // New system: Maps -1->0, 0->L/2, 1->L
                 pos.y = (socket.position.y + 1) * (length / 2);
                 break;
-            case 'industrial-tank':
-                const hScaleGen = ((component.properties?.od || 2.2) + 0.5) / 2.2;
-                const vScaleGen = (component.properties?.length || 4.0) / 4.0;
-                const iConeH = (component.properties?.length || 4.0) * 0.25;
-                pos.x *= hScaleGen;
-                pos.z *= hScaleGen;
-                pos.y = (pos.y * vScaleGen) + iConeH;
+            case 'industrial-tank': {
+                const tankRadius = radiusOuter * 2;
+                const legHeight = tankRadius * 1.5;
+                const floorOffset = (length / 2) + legHeight;
+                pos.x *= (tankRadius + 0.1); 
+                pos.z *= (tankRadius + 0.1);
+                pos.y = (pos.y * (length / 2)) + floorOffset;
                 break;
-            case 'tank':
-                const tHeight = component.properties?.length || 2.0;
-                pos.y = (socket.position.y * (tHeight / 2)) + (tHeight / 2);
-                pos.x *= radiusScale;
-                pos.z *= radiusScale;
+            }
+            case 'tank': {
+                const tankRadius = radiusOuter * 2;
+                const floorOffset = length / 2;
+                pos.x *= tankRadius;
+                pos.z *= tankRadius;
+                pos.y = (pos.y * (length / 2)) + floorOffset;
                 break;
+            }
             default:
                 // ALL other Fittings (elbow, tee, valve, reducer, flange, etc.) scale by radiusScale
                 pos.multiplyScalar(radiusScale);
@@ -262,10 +270,15 @@ export const findSnapPoint = (
         // Is it a vertical pipe orientation?
         // In our app, default rotation (0,0,0) for 'straight'/'vertical' is a vertical cylinder.
         const isVertical = effectiveType === 'vertical' || effectiveType === 'straight';
+        const isTank = effectiveType === 'tank' || effectiveType === 'industrial-tank';
 
         if (viewMode !== 'front') {
             // Horizontal ground placement
-            target.y = isVertical ? (lengthVal / 2) : radiusVal;
+            if (isTank) {
+                target.y = 0;
+            } else {
+                target.y = isVertical ? (lengthVal / 2) : radiusVal;
+            }
         } else {
             // Front view vertical backplane placement
             target.z = radiusVal;
@@ -351,11 +364,11 @@ export const findSnapPoint = (
         const def = COMPONENT_DEFINITIONS[comp.component_type];
         if (!def) continue;
 
-        const pos = new THREE.Vector3(comp.position_x, comp.position_y, comp.position_z);
+        const pos = new THREE.Vector3(Number(comp.position_x) || 0, Number(comp.position_y) || 0, Number(comp.position_z) || 0);
         const rot = new THREE.Euler(
-            (comp.rotation_x * Math.PI) / 180,
-            (comp.rotation_y * Math.PI) / 180,
-            (comp.rotation_z * Math.PI) / 180
+            (Number(comp.rotation_x) || 0) * Math.PI / 180,
+            (Number(comp.rotation_y) || 0) * Math.PI / 180,
+            (Number(comp.rotation_z) || 0) * Math.PI / 180
         );
         const quat = new THREE.Quaternion().setFromEuler(rot);
 

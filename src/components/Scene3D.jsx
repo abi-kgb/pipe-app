@@ -1,7 +1,7 @@
 import React, { useState, useRef, Suspense, Component, useEffect, useCallback, forwardRef, useImperativeHandle, useMemo } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { jsPDF } from 'jspdf';
-import { getComponentTag } from '../utils/tagging';
+import { getComponentTag } from '../utils/tagging.jsx';
 import { Html } from '@react-three/drei';
 import { RotateCcw, RotateCw, Plus, Minus } from 'lucide-react';
 import {
@@ -17,7 +17,7 @@ import {
   ContactShadows
 } from '@react-three/drei';
 import PipeComponent from './PipeComponent';
-import { findSnapPoint, findSnapForTransform } from '../utils/snapping';
+import { findSnapPoint, findSnapForTransform } from '../utils/snapping.jsx';
 import * as THREE from 'three';
 import ResizablePane from './ResizablePane';
 
@@ -43,7 +43,7 @@ class SceneErrorBoundary extends Component {
     return { hasError: true, error };
   }
   componentDidCatch(error, errorInfo) {
-    console.error("3D Viewport Error:", error, errorInfo);
+    console.error("3D Viewport Crash:", error, errorInfo);
   }
   render() {
     if (this.state.hasError) {
@@ -109,6 +109,8 @@ const SharedSceneElements = ({
   connectionMode = false,
   selectedSockets = [],
   onSocketClick,
+  isBlueprint = false,
+  snapPivot,
 }) => {
   const bgColor = isCapture ? '#ffffff' : (darkMode ? '#0f172a' : '#ffffff');
 
@@ -118,7 +120,13 @@ const SharedSceneElements = ({
   return (
     <>
       <color attach="background" args={[bgColor]} />
-      <ambientLight intensity={darkMode ? 0.8 : 1.2} />
+      {/* Lighting & Environment */}
+      {!isBlueprint && (
+        <Suspense fallback={null}>
+          <Environment preset="city" />
+        </Suspense>
+      )}
+      <ambientLight intensity={darkMode ? 0.3 : 1.2} />
       <pointLight position={[10, 10, 10]} intensity={darkMode ? 0.8 : 1.2} />
       <spotLight position={[-10, 20, 10]} angle={0.15} penumbra={1} intensity={darkMode ? 1.0 : 1.5} castShadow />
 
@@ -138,7 +146,6 @@ const SharedSceneElements = ({
         />
       )}
 
-      {/* Click Plane REMOVED to prevent cross-viewport selection clearing */}
 
       {!isCapture && (
         <>
@@ -154,11 +161,12 @@ const SharedSceneElements = ({
             infiniteGrid
           />
           <OriginMarker darkMode={darkMode} />
+          <OriginMarker darkMode={darkMode} />
         </>
       )}
 
       {/* Components Layer - Interactivity disabled during placement so hitboxes don't block clicks */}
-      <group pointerEvents={placingType ? 'none' : 'auto'}>
+      <group>
         {components.map((comp) => (
           <PipeComponent
             key={comp.id}
@@ -197,6 +205,7 @@ const SharedSceneElements = ({
           transformMode={transformMode}
           isTransforming={isTransforming}
           onTransform={onTransform}
+          snapPivot={snapPivot}
         />
       )}
 
@@ -224,6 +233,7 @@ const SelectionManager = ({ components, onBatchSelect, isDragging, isLocked }) =
     if (!canvas) return;
 
     const handleDown = (e) => {
+      console.log(`[SelectionManager/MouseDown] isLocked:${isLocked}, button:${e.button}`);
       // Only trigger if view is locked and it's a left click
       if (!isLocked || e.button !== 0) return;
 
@@ -238,7 +248,10 @@ const SelectionManager = ({ components, onBatchSelect, isDragging, isLocked }) =
     };
 
     const handleMove = (e) => {
-      if (!startPointer.current) return;
+      if (!startPointer.current || !gl.domElement) return;
+
+      // Ensure we have valid pointer coordinates
+      if (pointer.x === undefined || pointer.y === undefined) return;
 
       // Calculate distance in normalized coordinates to determine if dragging
       const dx = pointer.x - startPointer.current.x;
@@ -357,11 +370,13 @@ const SelectionManager = ({ components, onBatchSelect, isDragging, isLocked }) =
   );
 };
 
-// ... (PlacementGhost and EditorControls remain the same)
+// (PlacementGhost and EditorControls remain the same)
+
 const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, viewMode, darkMode }) => {
   const { raycaster, pointer, camera } = useThree();
   const [snap, setSnap] = useState(null);
   const pointerDownPos = useRef({ x: 0, y: 0 });
+  const isPlacingRef = useRef(false); // Debounce placement safely
 
   const frameCount = useRef(0);
   useFrame(() => {
@@ -372,231 +387,179 @@ const PlacementGhost = ({ placingType, placingTemplate, components, onPlace, vie
     raycaster.setFromCamera(pointer, camera);
     const result = findSnapPoint(raycaster, components, placingType, viewMode, placingTemplate);
 
-    // Only update state if position or rotation actually changed significantly
-    if (!snap ||
-      result.position.distanceToSquared(snap.position) > 0.0001 ||
-      result.isValid !== snap.isValid ||
-      result.isSnappedToSocket !== snap.isSnappedToSocket ||
-      result.isIntersecting !== snap.isIntersecting) {
+    // Initial snap or significant change
+    if (!snap || 
+        result.isValid !== snap.isValid ||
+        result.isSnappedToSocket !== snap.isSnappedToSocket ||
+        result.isIntersecting !== snap.isIntersecting ||
+        result.position.distanceToSquared(snap.position) > 0.0001) {
       setSnap(result);
     }
   });
 
-  const handlePointerDown = (e) => {
-    e.stopPropagation(); // Prevent camera controls from starting orbit/pan during placement
+  const handlePointerDown = useCallback((e) => {
+    // DON'T stop propagation here, so CameraControls can still ORBIT 
+    // while we are in placement mode.
     pointerDownPos.current = { x: e.clientX, y: e.clientY };
-  };
+  }, []);
 
-  const handlePointerUp = (e) => {
-    e.stopPropagation();
-    // Only place if it's a clean click, not a significant drag
+  const handlePointerUp = useCallback((e) => {
+    // ONLY stop propagation if we actually PLACED something, 
+    // but better to just let it flow so navigation feels unified.
     const dist = Math.sqrt(
       Math.pow(e.clientX - pointerDownPos.current.x, 2) +
       Math.pow(e.clientY - pointerDownPos.current.y, 2)
     );
-    if (dist > 12) return; // Slightly relaxed threshold
+    if (dist > 12) return; 
 
     if (snap && snap.isValid) {
-      // 🚨 BLOCK PLACEMENT IF INTERSECTING
-      if (snap.isIntersecting) {
-        console.warn('Pipe3D: Cannot place here - Collision detected');
-        return;
-      }
-
-      // Small local protection to prevent double-firing
-      if (e.target._isPlacing) return;
-      e.target._isPlacing = true;
-      setTimeout(() => { if (e.target) e.target._isPlacing = false; }, 400);
+      if (snap.isIntersecting) return;
+      if (isPlacingRef.current) return;
+      isPlacingRef.current = true;
+      setTimeout(() => { isPlacingRef.current = false; }, 400);
 
       onPlace(
         [snap.position.x, snap.position.y, snap.position.z],
         [snap.rotation.x * (180 / Math.PI), snap.rotation.y * (180 / Math.PI), snap.rotation.z * (180 / Math.PI)],
-        {}, // properties override (none)
+        {}, 
         snap.targetComponentId,
         snap.targetSocketIndex,
         snap.placingSocketIndex
       );
     }
-  };
+  }, [snap, onPlace]); 
 
-  // Background click planes — covering the full scene so clicking ANYWHERE places the pipe
-  // (not just the tiny snap bubble). One plane for ground view, one for front view.
-  const BackgroundClickPlane = () => {
-    if (viewMode === 'front') {
-      // Front view: vertical Z=0 plane
-      return (
-        <mesh
-          position={[0, 0, 0]}
-          onPointerDown={handlePointerDown}
-          onPointerUp={handlePointerUp}
-        >
-          <planeGeometry args={[2000, 2000]} />
-          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-        </mesh>
-      );
-    }
-    // All other views: horizontal Y=0 ground plane
-    return (
+  // Consolidate rendering to a single stable branch to prevent R3F reconciliation crashes
+  return (
+    <group>
+      {/* Consolidated Background Click Plane directly for better stability */}
       <mesh
-        rotation={[-Math.PI / 2, 0, 0]}
-        position={[0, -0.001, 0]}
+        rotation={viewMode === 'front' ? [0, 0, 0] : [-Math.PI / 2, 0, 0]}
+        position={viewMode === 'front' ? [0, 0, 0] : [0, -0.001, 0]}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
       >
-        <planeGeometry args={[2000, 2000]} />
+        <planeGeometry args={[4000, 4000]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
-    );
-  };
 
-  // Always render the background click plane immediately (even before first snap is computed)
-  if (!snap) {
-    return <BackgroundClickPlane />;
-  }
+      {snap && (
+        <group
+          position={[snap.position.x, snap.position.y, snap.position.z]}
+          rotation={[snap.rotation.x, snap.rotation.y, snap.rotation.z]}
+        >
+          {placingTemplate?.isAssembly && placingTemplate.parts ? (
+            placingTemplate.parts.map((p, i) => {
+              const assemblyQuat = new THREE.Quaternion().setFromEuler(
+                new THREE.Euler(snap.rotation.x, snap.rotation.y, snap.rotation.z)
+              );
+              const offsetVec = new THREE.Vector3(p.offset_x || 0, p.offset_y || 0, p.offset_z || 0);
+              offsetVec.applyQuaternion(assemblyQuat);
 
-  const ghostComponent = {
-    id: 'ghost',
-    component_type: placingType,
-    position_x: snap.position.x,
-    position_y: snap.position.y,
-    position_z: snap.position.z,
-    rotation_x: snap.rotation.x * (180 / Math.PI),
-    rotation_y: snap.rotation.y * (180 / Math.PI),
-    rotation_z: snap.rotation.z * (180 / Math.PI),
-    connections: [],
-    properties: placingTemplate?.properties || {}, // Use template properties for ghost rendering
-    _isGhost: true,
-    _isValid: snap.isValid && !snap.isIntersecting,
-    _isSnapped: snap.isSnappedToSocket,
-    _isIntersecting: snap.isIntersecting
-  };
+              const partLocalRot = new THREE.Euler(
+                (p.rotation_x || 0) * (Math.PI / 180),
+                (p.rotation_y || 0) * (Math.PI / 180),
+                (p.rotation_z || 0) * (Math.PI / 180)
+              );
+              const partLocalQuat = new THREE.Quaternion().setFromEuler(partLocalRot);
+              const partFinalQuat = assemblyQuat.clone().multiply(partLocalQuat);
+              const finalRot = new THREE.Euler().setFromQuaternion(partFinalQuat);
 
-  return (
-    <>
-      {/* Full-scene background click plane — clicking anywhere places the pipe */}
-      <BackgroundClickPlane />
+              return (
+                <group key={`ghost_ass_${i}`}>
+                  <PipeComponent
+                    component={{
+                      ...p,
+                      id: `ghost_part_${i}`,
+                      position_x: offsetVec.x,
+                      position_y: offsetVec.y,
+                      position_z: offsetVec.z,
+                      rotation_x: finalRot.x * (180 / Math.PI),
+                      rotation_y: finalRot.y * (180 / Math.PI),
+                      rotation_z: finalRot.z * (180 / Math.PI),
+                      _isGhost: true,
+                      _isValid: snap.isValid && !snap.isIntersecting,
+                      _isIntersecting: snap.isIntersecting
+                    }}
+                    isSelected={false}
+                    isGhost={true}
+                    onSelect={() => { }}
+                    onUpdate={() => { }}
+                    viewMode={viewMode}
+                    darkMode={darkMode}
+                  />
+                </group>
+              );
+            })
+          ) : (
+            <group>
+              <PipeComponent
+                component={{
+                  id: 'ghost',
+                  component_type: placingType,
+                  position_x: 0,
+                  position_y: 0,
+                  position_z: 0,
+                  rotation_x: 0,
+                  rotation_y: 0,
+                  rotation_z: 0,
+                  connections: [],
+                  properties: placingTemplate?.properties || {}, 
+                  _isGhost: true,
+                  _isValid: snap.isValid && !snap.isIntersecting,
+                  _isSnapped: snap.isSnappedToSocket,
+                  _isIntersecting: snap.isIntersecting
+                }}
+                isSelected={false}
+                isGhost={true}
+                onSelect={() => { }}
+                onUpdate={() => { }}
+                viewMode={viewMode}
+                darkMode={darkMode}
+              />
+            </group>
+          )}
+        </group>
+      )}
 
-      <group
-        position={[snap.position.x, snap.position.y, snap.position.z]}
-        rotation={[snap.rotation.x, snap.rotation.y, snap.rotation.z]}
-      >
-        {placingTemplate?.isAssembly && placingTemplate.parts ? (
-          placingTemplate.parts.map((p, i) => {
-            // Calculate rotated preview for each part
-            const assemblyQuat = new THREE.Quaternion().setFromEuler(
-              new THREE.Euler(snap.rotation.x, snap.rotation.y, snap.rotation.z)
-            );
-
-            // 1. Position
-            const offsetVec = new THREE.Vector3(p.offset_x || 0, p.offset_y || 0, p.offset_z || 0);
-            offsetVec.applyQuaternion(assemblyQuat);
-
-            // 2. Rotation
-            const partLocalRot = new THREE.Euler(
-              (p.rotation_x || 0) * (Math.PI / 180),
-              (p.rotation_y || 0) * (Math.PI / 180),
-              (p.rotation_z || 0) * (Math.PI / 180)
-            );
-            const partLocalQuat = new THREE.Quaternion().setFromEuler(partLocalRot);
-            const partFinalQuat = assemblyQuat.clone().multiply(partLocalQuat);
-            const finalRot = new THREE.Euler().setFromQuaternion(partFinalQuat);
-
-            return (
-              <group key={`ghost_ass_${i}`} pointerEvents="none">
-                <PipeComponent
-                  component={{
-                    ...p,
-                    id: `ghost_part_${i}`,
-                    position_x: offsetVec.x,
-                    position_y: offsetVec.y,
-                    position_z: offsetVec.z,
-                    rotation_x: finalRot.x * (180 / Math.PI),
-                    rotation_y: finalRot.y * (180 / Math.PI),
-                    rotation_z: finalRot.z * (180 / Math.PI),
-                    _isGhost: true,
-                    _isValid: snap.isValid && !snap.isIntersecting,
-                    _isIntersecting: snap.isIntersecting
-                  }}
-                  isSelected={false}
-                  isGhost={true}
-                  onSelect={() => { }}
-                  onUpdate={() => { }}
-                  viewMode={viewMode}
-                  darkMode={darkMode}
-                />
-              </group>
-            );
-          })
-        ) : (
-          <group pointerEvents="none">
-            <PipeComponent
-              component={{
-                ...ghostComponent,
-                position_x: 0,
-                position_y: 0,
-                position_z: 0,
-                rotation_x: 0,
-                rotation_y: 0,
-                rotation_z: 0,
-              }}
-              isSelected={false}
-              isGhost={true}
-              onSelect={() => { }}
-              onUpdate={() => { }}
-              viewMode={viewMode}
-              darkMode={darkMode}
+      {snap && (
+        <group position={[snap.snapSocketWorldPos.x, snap.snapSocketWorldPos.y, snap.snapSocketWorldPos.z]}>
+          <mesh>
+            <sphereGeometry args={[snap.isSnappedToSocket ? 0.35 : 0.15, 16, 16]} />
+            <meshBasicMaterial
+              color={snap.isIntersecting ? '#f43f5e' : (snap.isSnappedToSocket ? '#10b981' : (snap.isValid ? '#06b6d4' : '#f43f5e'))}
+              transparent
+              opacity={snap.isSnappedToSocket || snap.isIntersecting ? 0.9 : 0.4}
+              depthTest={false} 
             />
-          </group>
-        )}
-      </group>
-
-      {/* Snap point indicator (The "Bubble") — Visual only, positioned at actual connection point */}
-      <group position={[snap.snapSocketWorldPos.x, snap.snapSocketWorldPos.y, snap.snapSocketWorldPos.z]}>
-        {/* Visual Indicator */}
-        <mesh>
-          <sphereGeometry args={[snap.isSnappedToSocket ? 0.35 : 0.15, 16, 16]} />
-          <meshBasicMaterial
-            color={snap.isIntersecting ? '#f43f5e' : (snap.isSnappedToSocket ? '#10b981' : (snap.isValid ? '#06b6d4' : '#f43f5e'))}
-            transparent
-            opacity={snap.isSnappedToSocket || snap.isIntersecting ? 0.9 : 0.4}
-            depthTest={false} // Always on top
-          />
-        </mesh>
-
-        {/* Secondary ring for high visibility during snapping */}
-        {snap.isSnappedToSocket && (
-          <mesh rotation={[Math.PI / 2, 0, 0]}>
-            <ringGeometry args={[0.4, 0.5, 32]} />
-            <meshBasicMaterial color="#10b981" transparent opacity={0.6} depthTest={false} />
           </mesh>
-        )}
-
-        {/* Invisible Click Hitbox - Makes the bubble easy to click (though background plane handles it now) */}
-        <mesh visible={false}>
-          <sphereGeometry args={[0.8, 16, 16]} />
-          <meshBasicMaterial color="red" transparent opacity={0.1} />
-        </mesh>
-
-        {/* Collision Warning Label */}
-        {snap.isIntersecting && (
-          <Html position={[0, 0.5, 0]} center>
-            <div className="bg-red-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter whitespace-nowrap shadow-xl border border-white/20">
-              Collision
-            </div>
-          </Html>
-        )}
-      </group>
-    </>
+          {snap.isSnappedToSocket && (
+            <mesh rotation={[Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[0.4, 0.5, 32]} />
+              <meshBasicMaterial color="#10b981" transparent opacity={0.6} depthTest={false} />
+            </mesh>
+          )}
+          {snap.isIntersecting && (
+            <Html position={[0, 0.5, 0]} center>
+              <div className="bg-red-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter whitespace-nowrap shadow-xl border border-white/20">
+                Collision
+              </div>
+            </Html>
+          )}
+        </group>
+      )}
+    </group>
   );
 };
-
-const EditorControls = ({ selectedIds, components, onUpdateMultiple, transformMode, isTransforming, onTransform }) => {
-  const { scene } = useThree();
+const EditorControls = ({ selectedIds, components, onUpdateMultiple, transformMode, isTransforming, onTransform, snapPivot }) => {
+  const { scene, gl } = useThree();
   const pivotRef = useRef();
   const [isReady, setIsReady] = useState(false);
+  const domElement = gl?.domElement ?? null;
 
   // 1. Calculate the center of all selected objects to position the pivot
   useEffect(() => {
+    setIsReady(false); // Reset on selection change
     if (!pivotRef.current || selectedIds.length === 0) return;
 
     const selectedObjects = selectedIds
@@ -614,9 +577,17 @@ const EditorControls = ({ selectedIds, components, onUpdateMultiple, transformMo
     if (selectedObjects.length === 1) {
       // PERFECTION: For a single object, use its own origin as the pivot.
       // This prevents the "shifting" during rotation for asymmetrical parts!
-      const worldPos = new THREE.Vector3();
-      selectedObjects[0].getWorldPosition(worldPos);
-      pivotRef.current.position.copy(worldPos);
+      
+      const targetId = selectedIds[0];
+      if (snapPivot && snapPivot.id === targetId && transformMode === 'rotate') {
+        // Use the connection point as rotation pivot!
+        // This ensures elbows and other fittings rotate naturally around their junction
+        pivotRef.current.position.copy(snapPivot.worldPos);
+      } else {
+        const worldPos = new THREE.Vector3();
+        selectedObjects[0].getWorldPosition(worldPos);
+        pivotRef.current.position.copy(worldPos);
+      }
     } else {
       // For multiple objects, use the bounding box center as a group pivot.
       const box = new THREE.Box3();
@@ -648,6 +619,8 @@ const EditorControls = ({ selectedIds, components, onUpdateMultiple, transformMo
       <group ref={pivotRef} />
       {isReady && pivotRef.current && (
         <TransformControls
+          // Removed makeDefault to prevent conflict with CameraControls
+          // and ensure the camera controls don't get permanently hijacked
           object={pivotRef.current}
           mode={transformMode}
           size={0.6}
@@ -666,7 +639,7 @@ const EditorControls = ({ selectedIds, components, onUpdateMultiple, transformMo
             });
           }}
           onChange={() => {
-            if (pivotRef.current) {
+            if (!pivotRef.current) return;
               const rot = pivotRef.current.rotation;
               const pos = pivotRef.current.position;
               setTransformInfo({
@@ -712,7 +685,6 @@ const EditorControls = ({ selectedIds, components, onUpdateMultiple, transformMo
                   setTransformInfo(prev => ({ ...prev, isIntersecting: false }));
                 }
               }
-            }
           }}
           onMouseUp={() => {
             const pivot = pivotRef.current;
@@ -763,7 +735,7 @@ const EditorControls = ({ selectedIds, components, onUpdateMultiple, transformMo
             // This prevents the "selection shift" to the component under the mouse
             setTimeout(() => {
               isTransforming.current = false;
-            }, 150);
+            }, 50);
           }}
         />
       )}
@@ -1000,7 +972,7 @@ const ViewportCameraControls = ({ viewMode, setResetHandler, setZoomHandlers, se
           controlsRef.current.setLookAt(tx, 100, tz, tx, ty, tz, true);
         } else if (viewMode === 'front') {
           controlsRef.current.setLookAt(tx, ty, 100, tx, ty, tz, true);
-        } else {
+        } else if (controlsRef.current.moveTo) {
           controlsRef.current.moveTo(tx, ty, tz, true);
         }
       }
@@ -1015,35 +987,39 @@ const ViewportCameraControls = ({ viewMode, setResetHandler, setZoomHandlers, se
       setZoomHandlers({
         in: () => {
           const controls = controlsRef.current;
-          console.log(`[ZoomIn] ${viewMode}, current zoom:`, controls?.camera?.zoom);
-          if (controls) controls.zoomTo(controls.camera.zoom * 1.5, true);
+          if (!controls || !controls.camera) return;
+          console.log(`[ZoomIn] ${viewMode}, current zoom:`, controls.camera.zoom);
+          controls.zoomTo(controls.camera.zoom * 1.5, true);
         },
         out: () => {
           const controls = controlsRef.current;
-          console.log(`[ZoomOut] ${viewMode}, current zoom:`, controls?.camera?.zoom);
-          if (controls) controls.zoomTo(controls.camera.zoom / 1.5, true);
+          if (!controls || !controls.camera) return;
+          console.log(`[ZoomOut] ${viewMode}, current zoom:`, controls.camera.zoom);
+          controls.zoomTo(controls.camera.zoom / 1.5, true);
         }
       });
     }
   }, [handleReset, setResetHandler, setZoomHandlers, viewMode]);
 
-  const mouseButtons = isLocked
-    ? { left: 0, middle: 0, right: 0, wheel: 0 }
-    : (viewMode !== 'iso'
-      ? { left: 2, middle: 0, right: 16, wheel: 16 } // 2D: Left=Pan, Right=Zoom, Wheel=Zoom
-      : { left: 1, middle: 0, right: 2, wheel: 16 }  // ISO: Left=Rotate, Right=Pan, Wheel=Zoom
-    );
+  // ── Mouse Button Configuration ──────────────────────────────
+  // Use explicit ACTION constants based on camera-controls / drei defaults:
+  // 1: ROTATE, 2: TRUCK (PAN), 8: DOLLY, 16: ZOOM
+  const mouseButtons = useMemo(() => {
+    if (isLocked) return { left: 0, middle: 0, right: 0, wheel: 16 };
+    if (viewMode !== 'iso') return { left: 2, middle: 2, right: 2, wheel: 16 };
+    return { left: 1, middle: 2, right: 2, wheel: 16 };
+  }, [viewMode, isLocked]);
 
   return (
     <>
       <CameraControls
         ref={controlsRef}
-        makeDefault
-        dollyToCursor
+        makeDefault={true}
+        dollyToCursor={true}
         dollyMode="zoom"
         mouseButtons={mouseButtons}
         enableRotate={!isLocked && viewMode === 'iso'}
-        enabled={true} // MUST be true for programmatic .zoom() buttons to work!
+        enabled={true}
         minZoom={0.01}
         maxZoom={500}
       />
@@ -1059,7 +1035,7 @@ const ViewportCameraControls = ({ viewMode, setResetHandler, setZoomHandlers, se
 
 const Scene3D = forwardRef(function Scene3D({
   components, selectedIds, onSelectComponent, onBatchSelect, placingType, placingTemplate, onPlaceComponent, onCancelPlacement, onUpdateComponent, onUpdateMultiple, transformMode, designName, darkMode, isLocked, suppressLabels = false, isCapturing = false,
-  connectionMode = false, selectedSockets = [], onSocketClick
+  connectionMode = false, selectedSockets = [], onSocketClick, snapPivot
 }, ref) {
   const [viewLayout, setViewLayout] = useState(['iso', 'front', 'top']);
   const resetHandlers = useRef({});
@@ -1268,6 +1244,7 @@ const Scene3D = forwardRef(function Scene3D({
             connectionMode={connectionMode}
             selectedSockets={selectedSockets}
             onSocketClick={onSocketClick}
+            snapPivot={snapPivot}
           />
         </SceneErrorBoundary>
 
@@ -1388,6 +1365,7 @@ const Scene3D = forwardRef(function Scene3D({
                 connectionMode={false}
                 selectedSockets={[]}
                 onSocketClick={() => { }}
+                snapPivot={snapPivot}
               />
             </SceneErrorBoundary>
           </div>
@@ -1435,9 +1413,21 @@ const ViewportContent = ({
   connectionMode = false,
   selectedSockets = [],
   onSocketClick,
+  snapPivot,
 }) => {
   const isDragging = useRef(false);
   const isTransforming = useRef(false);
+
+  // Safety: Reset transforming state on window mouse up to prevent stuck states
+  useEffect(() => {
+    const handleGlobalUp = () => {
+      if (isTransforming.current) {
+        setTimeout(() => { isTransforming.current = false; }, 100);
+      }
+    };
+    window.addEventListener('pointerup', handleGlobalUp);
+    return () => window.removeEventListener('pointerup', handleGlobalUp);
+  }, []);
 
   const getTagInternal = (comp) => {
     const type = comp.component_type || 'straight';
@@ -1452,11 +1442,13 @@ const ViewportContent = ({
       dpr={isCapture ? 2 : Math.min(2, window.devicePixelRatio)}
       shadows={true}
       frameloop="always"
-      camera={config.camera === 'perspective' ? undefined : undefined} // Not needed, ortho/persp handle it
+      camera={config.camera === 'ortho' ? { zoom: config.defaultZoom || 40, near: 0.1, far: 2000 } : { fov: config.defaultFov || 50, near: 0.1, far: 2000 }}
       onContextMenu={(e) => e.preventDefault()}
       onPointerMissed={(e) => {
-        // Only clear if it was a clean click (not a drag) and not transforming
-        if (e.button === 0 && !isDragging.current && !isTransforming.current) {
+        // Deselect only on actual left click (not drag or transform)
+        // Check nativeEvent.button for cross-browser safety
+        const isLeftClick = e.button === 0 || e.nativeEvent.button === 0;
+        if (isLeftClick && !isDragging.current && !isTransforming.current) {
           onSelectComponent(null);
         }
       }}
@@ -1507,6 +1499,7 @@ const ViewportContent = ({
         connectionMode={connectionMode}
         selectedSockets={selectedSockets}
         onSocketClick={onSocketClick}
+        snapPivot={snapPivot}
       />
     </Canvas>
   );

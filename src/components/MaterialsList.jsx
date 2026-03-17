@@ -3,8 +3,8 @@ import { X, Download, FileText, Weight } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { calculateComponentCost, calculateComponentWeight, calculateComponentMetrics, formatIndianNumber } from '../utils/pricing';
-import { getComponentTag } from '../utils/tagging';
+import { calculateComponentCost, calculateComponentWeight, calculateComponentMetrics, formatIndianNumber } from '../utils/pricing.jsx';
+import { getComponentTag } from '../utils/tagging.jsx';
 import * as XLSX from 'xlsx';
 
 export default function MaterialsList({ designName = 'Untitled Project', components, onClose }) {

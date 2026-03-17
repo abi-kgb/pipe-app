@@ -1,4 +1,4 @@
-import { COMPONENT_DEFINITIONS, MATERIALS } from '../config/componentDefinitions';
+import { COMPONENT_DEFINITIONS, MATERIALS } from '../config/componentDefinitions.jsx';
 
 // ─────────────────────────────────────────────────────────────────
 // Real Indian market pipe prices (₹) – Feb 2026

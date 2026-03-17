@@ -1,22 +1,32 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import * as THREE from 'three';
-import { findSnapPoint, findSnapForTransform, checkIntersection, calculateManualConnection } from './utils/snapping';
+import { findSnapPoint, findSnapForTransform, checkIntersection, calculateManualConnection } from './utils/snapping.jsx';
 import Scene3D from './components/Scene3D';
 import ComponentLibrary from './components/ComponentLibrary';
 import Toolbar from './components/Toolbar';
-import { calculateTotalCost } from './utils/pricing';
+import { calculateTotalCost } from './utils/pricing.jsx';
 import MaterialsList from './components/MaterialsList';
 import ResizablePane from './components/ResizablePane';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { getComponentTag } from './utils/tagging';
+import { getComponentTag } from './utils/tagging.jsx';
 import * as XLSX from 'xlsx';
-import { calculateComponentMetrics, calculateComponentCost } from './utils/pricing';
+import { calculateComponentMetrics, calculateComponentCost } from './utils/pricing.jsx';
 import AuthPage from './components/AuthPage';
-import { COMPONENT_DEFINITIONS } from './config/componentDefinitions';
+import { COMPONENT_DEFINITIONS } from './config/componentDefinitions.jsx';
 import InventoryManager from './components/InventoryManager';
 
 function App() {
+  useEffect(() => {
+    const handleGlobalClick = (e) => {
+      try {
+        console.log(`[Global/Click] target:${e?.target?.tagName}.${e?.target?.className}, x:${e?.clientX}, y:${e?.clientY}`);
+      } catch (err) {}
+    };
+    window.addEventListener('mousedown', handleGlobalClick);
+    return () => window.removeEventListener('mousedown', handleGlobalClick);
+  }, []);
+
   const [components, setComponents] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
   const [placingType, setPlacingType] = useState(null);
@@ -53,14 +63,15 @@ function App() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
-  const [history, setHistory] = useState(() => {
-    try {
-      const saved = localStorage.getItem('pipe3d_history');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
-  });
+  const [history, setHistory] = useState([]);
+
+  // Fetch history from DB on mount
+  useEffect(() => {
+    fetch('http://localhost:5000/api/projects')
+      .then(res => res.json())
+      .then(data => setHistory(data))
+      .catch(err => console.error('Failed to fetch projects from DB:', err));
+  }, []);
   const [userParts, setUserParts] = useState(() => {
     try {
       const saved = localStorage.getItem('pipe3d_user_parts');
@@ -98,6 +109,24 @@ function App() {
     saveToHistory(newComps);
   }, [saveToHistory]);
 
+  // Helper: decrement inventory for a list of components in one batch request
+  const decrementInventoryBatch = useCallback((comps) => {
+    if (!comps || comps.length === 0) return;
+    const items = comps.map(comp => ({
+      component_type: comp.component_type,
+      material: comp.properties?.material || 'pvc',
+      amount: (comp.component_type === 'straight' || comp.component_type === 'vertical')
+        ? (comp.properties?.length || 2)
+        : 1
+    }));
+    fetch('http://localhost:5000/api/inventory/use-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items })
+    }).catch(err => console.error('Inventory Batch Update Failed:', err));
+  }, []);
+
+
   const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
       const prevIdx = historyIndex - 1;
@@ -116,31 +145,82 @@ function App() {
     }
   }, [historyIndex, historyStack]);
 
-  const handleSaveToHistory = useCallback(() => {
+  const handleSaveToHistory = useCallback(async () => {
     if (components.length === 0) return;
 
-    const newEntry = {
-      id: `hist_${Date.now()} `,
-      name: designName,
-      components: JSON.parse(JSON.stringify(components)), // Deep clone
-      timestamp: Date.now()
-    };
+    try {
+      // 1. Capture quick WebGL snapshot
+      const canvas = document.querySelector('canvas');
+      const image_data = canvas ? canvas.toDataURL('image/jpeg', 0.25) : '';
 
-    setHistory(prev => [newEntry, ...prev].slice(0, 100)); // Keep last 100
-  }, [components, designName]);
+      // 2. Build BOM summary
+      const rawBom = components.map(c => ({ type: c.component_type, material: c.properties?.material || 'pvc' }));
+      const typeCounts = {};
+      rawBom.forEach(item => {
+        const key = `${item.type}_${item.material}`;
+        typeCounts[key] = (typeCounts[key] || 0) + 1;
+      });
+      
+      const payload = {
+        user_id: user?.id || null,
+        name: designName || 'Untitled Design',
+        components_json: JSON.stringify(components),
+        bom_json: JSON.stringify(typeCounts),
+        image_data
+      };
 
-  const handleLoadHistory = useCallback((entry) => {
-    if (components.length > 0) {
-      const confirm = window.confirm('Save current design to history before loading?');
-      if (confirm) handleSaveToHistory();
+      const res = await fetch('http://localhost:5000/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        // Optimistically update list
+        setHistory(prev => [{
+          id: data.id,
+          name: designName,
+          created_at: new Date().toISOString(),
+          image_data
+        }, ...prev]);
+      }
+    } catch (err) {
+      console.error('Failed to save project to DB:', err);
     }
-    setComponents(entry.components);
-    setDesignName(entry.name);
-    setSelectedIds([]);
+  }, [components, designName, user]);
+
+  const handleLoadHistory = useCallback(async (entry) => {
+    if (components.length > 0) {
+      const confirm = window.confirm('Save current design to database before loading?');
+      if (confirm) await handleSaveToHistory();
+    }
+    
+    try {
+      const res = await fetch(`http://localhost:5000/api/projects/${entry.id}`);
+      if (!res.ok) throw new Error('Project not found');
+      const data = await res.json();
+      
+      if (data.components_json) {
+        setComponents(JSON.parse(data.components_json));
+        setDesignName(data.name);
+        setSelectedIds([]);
+      }
+    } catch (err) {
+      console.error('Failed to load project details from DB:', err);
+      alert('Could not load project from database.');
+    }
   }, [components, handleSaveToHistory]);
 
-  const handleDeleteHistory = useCallback((id) => {
-    setHistory(prev => prev.filter(h => h.id !== id));
+  const handleDeleteHistory = useCallback(async (id) => {
+    try {
+      const res = await fetch(`http://localhost:5000/api/projects/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setHistory(prev => prev.filter(h => h.id !== id));
+      }
+    } catch (err) {
+      console.error('Failed to delete history item', err);
+    }
   }, []);
 
   const handleNewDesign = () => {
@@ -266,10 +346,8 @@ function App() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [components, designName]);
 
-  // Sync history to localStorage
-  useEffect(() => {
-    localStorage.setItem('pipe3d_history', JSON.stringify(history));
-  }, [history]);
+  // userParts syncing still active
+
 
   useEffect(() => {
     localStorage.setItem('pipe3d_user_parts', JSON.stringify(userParts));
@@ -307,43 +385,48 @@ function App() {
         )
       );
 
+      // Pre-calculate assembly parts for both state update and inventory decrement
+      const assemblyParts = placingTemplate.parts.map(p => {
+        const offsetVec = new THREE.Vector3(p.offset_x || 0, p.offset_y || 0, p.offset_z || 0);
+        offsetVec.applyQuaternion(assemblyQuat);
+
+        const partLocalRot = new THREE.Euler(
+          (p.rotation_x || 0) * (Math.PI / 180),
+          (p.rotation_y || 0) * (Math.PI / 180),
+          (p.rotation_z || 0) * (Math.PI / 180)
+        );
+        const partLocalQuat = new THREE.Quaternion().setFromEuler(partLocalRot);
+        const partFinalQuat = assemblyQuat.clone().multiply(partLocalQuat);
+        const finalRot = new THREE.Euler().setFromQuaternion(partFinalQuat);
+
+        return {
+          ...p,
+          properties: { ...p.properties },
+          id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${Math.random()}`,
+          assemblyId,
+          position_x: position[0] + offsetVec.x,
+          position_y: position[1] + offsetVec.y,
+          position_z: position[2] + offsetVec.z,
+          rotation_x: finalRot.x * (180 / Math.PI),
+          rotation_y: finalRot.y * (180 / Math.PI),
+          rotation_z: finalRot.z * (180 / Math.PI),
+          connections: []
+        };
+      });
+
       setComponents(prev => {
-        const newComps = placingTemplate.parts.map(p => {
-          // 1. Calculate rotated offset
-          const offsetVec = new THREE.Vector3(p.offset_x || 0, p.offset_y || 0, p.offset_z || 0);
-          offsetVec.applyQuaternion(assemblyQuat);
-
-          // 2. Calculate rotated part rotation
-          const partLocalRot = new THREE.Euler(
-            (p.rotation_x || 0) * (Math.PI / 180),
-            (p.rotation_y || 0) * (Math.PI / 180),
-            (p.rotation_z || 0) * (Math.PI / 180)
-          );
-          const partLocalQuat = new THREE.Quaternion().setFromEuler(partLocalRot);
-          const partFinalQuat = assemblyQuat.clone().multiply(partLocalQuat);
-          const finalRot = new THREE.Euler().setFromQuaternion(partFinalQuat);
-
-          return {
-            ...p,
-            properties: { ...p.properties }, // Shallow clone properties
-            id: `comp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${Math.random()}`,
-            assemblyId,
-            position_x: position[0] + offsetVec.x,
-            position_y: position[1] + offsetVec.y,
-            position_z: position[2] + offsetVec.z,
-            rotation_x: finalRot.x * (180 / Math.PI),
-            rotation_y: finalRot.y * (180 / Math.PI),
-            rotation_z: finalRot.z * (180 / Math.PI),
-            connections: []
-          };
-        });
-        const finalComps = [...prev, ...newComps];
+        const finalComps = [...prev, ...assemblyParts];
         saveToHistory(finalComps);
         return finalComps;
       });
+
       setPlacingType(null);
       setPlacingTemplate(null);
       setSelectedIds([]);
+
+      // --- MSSQL INVENTORY DECREMENT (ASSEMBLY) ---
+      decrementInventoryBatch(assemblyParts);
+
       return;
     }
 
@@ -405,19 +488,7 @@ function App() {
     });
 
     // --- MSSQL INVENTORY DECREMENT ---
-    const amount = placingType === 'straight' || placingType === 'vertical'
-      ? (properties.length || 2)
-      : 1;
-
-    fetch('http://localhost:5000/api/inventory/use', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        component_type: placingType,
-        material: finalProperties.material || 'pvc',
-        amount: amount
-      })
-    }).catch(err => console.error('Inventory Update Failed:', err));
+    decrementInventoryBatch([{ component_type: placingType, properties: finalProperties }]);
 
     // Note: We clear placingType here to return to selection mode after placement.
     setPlacingType(null);
@@ -766,6 +837,9 @@ function App() {
         position_z: original.position_z + 0.5,
       }));
 
+      // --- MSSQL INVENTORY DECREMENT (DUPLICATE) ---
+      decrementInventoryBatch(newClones);
+
       const newComponents = [...prev, ...newClones];
       saveToHistory(newComponents);
       // Select the new clones automatically
@@ -931,6 +1005,10 @@ function App() {
           position_z: clipboard.position_z || 0,
           connections: []
         };
+        
+        // --- MSSQL INVENTORY DECREMENT (PASTE) ---
+        decrementInventoryBatch([newComponent]);
+
         setComponents(prev => {
           const next = [...prev, newComponent];
           saveToHistory(next);
@@ -951,15 +1029,18 @@ function App() {
         if (e.ctrlKey) step = 0.05; // Precision step
 
         let dx = 0, dy = 0, dz = 0;
-        // Intuitive mapping: Arrow Up/Down for Vertical (Elevation)
-        if (key === 'arrowup') dy = step;
-        if (key === 'arrowdown') dy = -step;
+        // Standard 3D Editor mapping:
+        // X-axis: Left/Right
         if (key === 'arrowleft' || key === 'a') dx = -step;
         if (key === 'arrowright' || key === 'd') dx = step;
 
-        // Depth/Forward-Backward mapping
-        if (key === 'pageup' || key === 'w') dz = -step;
-        if (key === 'pagedown' || key === 's') dz = step;
+        // Z-axis: Forward/Backward (Ground plane)
+        if (key === 'arrowup' || key === 'w') dz = -step;
+        if (key === 'arrowdown' || key === 's') dz = step;
+
+        // Y-axis: Elevation (Up/Down)
+        if (key === 'pageup') dy = step;
+        if (key === 'pagedown') dy = -step;
 
         const updated = components
           .filter(c => selectedIds.includes(c.id))
@@ -1264,8 +1345,8 @@ function App() {
                   onSelectComponent={handleSelectComponent}
                   placingType={placingType}
                   placingTemplate={placingTemplate}
-                  onPlaceComponent={(pos, rot) => {
-                    handlePlaceComponent(pos, rot);
+                  onPlaceComponent={(pos, rot, props, tId, tsIdx, psIdx) => {
+                    handlePlaceComponent(pos, rot, props, tId, tsIdx, psIdx);
                     if (isMobile) setShowLibrary(false);
                   }}
                   onCancelPlacement={handleCancelPlacement}
@@ -1384,6 +1465,7 @@ function App() {
                     connectionMode={connectionMode}
                     selectedSockets={selectedSockets}
                     onSocketClick={handleSocketClick}
+                    snapPivot={snapPivot}
                   />
                 </div>
               }

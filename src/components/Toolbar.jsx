@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { Save, Plus, Info, Sun, Moon, List, Undo, Redo, Lock, Unlock, ChevronDown, FileText, Table, MousePointer2, CheckCircle2, RotateCw, Zap, Plug, Database } from 'lucide-react';
-import { formatIndianNumber } from '../utils/pricing';
+import { formatIndianNumber } from '../utils/pricing.jsx';
 
 export default function Toolbar({
   designName,

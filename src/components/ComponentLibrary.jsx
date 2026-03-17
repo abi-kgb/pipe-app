@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Package, ArrowRight, ArrowUp, Circle, Filter, Droplets, GitBranch, Slash, StopCircle, Trash2, Move, RotateCcw, Scaling, Disc, Hash, Plus, Link, Square, Cylinder, Cuboid, Cone, Layers, MousePointer2, History as HistoryIcon, Clock, Copy, List } from 'lucide-react';
-import { COMPONENT_DEFINITIONS, MATERIALS } from '../config/componentDefinitions';
+import { COMPONENT_DEFINITIONS, MATERIALS } from '../config/componentDefinitions.jsx';
 
 
 const LIBRARY_PARTS = [
@@ -636,7 +636,7 @@ export default function ComponentLibrary({
                             {entry.name || 'Untitled'}
                           </p>
                           <p className={`text-[8px] font-bold transition-colors ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
-                            {new Date(entry.timestamp).toLocaleDateString()} at {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {new Date(entry.created_at || entry.timestamp).toLocaleDateString()} at {new Date(entry.created_at || entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </p>
                         </div>
                       </div>
@@ -648,6 +648,12 @@ export default function ComponentLibrary({
                         <Trash2 size={12} />
                       </button>
                     </div>
+                    {/* Database Project Thumbnail Image */}
+                    {entry.image_data && (
+                      <div className={`w-full h-24 mb-3 rounded-lg overflow-hidden border ${darkMode ? 'border-slate-700 bg-slate-900/50' : 'border-slate-200 bg-slate-50'}`}>
+                        <img src={entry.image_data} alt={entry.name} className="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                    )}
                     <button
                       onClick={() => onLoadHistory(entry)}
                       className={`w-full py-2 rounded-lg text-[9px] font-black uppercase transition-all tracking-widest border ${darkMode ? 'bg-slate-900 hover:bg-blue-600 text-blue-400 hover:text-white border-slate-700 hover:border-blue-500' : 'bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white border-blue-100'}`}

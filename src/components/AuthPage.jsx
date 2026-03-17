@@ -62,7 +62,7 @@ function FloatingParticles({ count = 100 }) {
 
 const Background3D = () => {
     return (
-        <div className="absolute inset-0 z-0 bg-slate-950">
+        <div className="absolute inset-0 z-0 bg-slate-950 pointer-events-none">
             <div className="absolute inset-0 bg-gradient-to-tr from-slate-950 via-slate-950/80 to-blue-900/20 pointer-events-none" />
         </div>
     );

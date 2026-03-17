@@ -52,7 +52,7 @@ export const COMPONENT_DEFINITIONS = {
         defaultWT: 0.01,
         sockets: [
             { position: new THREE.Vector3(0, 0.7, 0), direction: new THREE.Vector3(0, 1, 0) },
-            { position: new THREE.Vector3(0.495, 0.495, 0), direction: new THREE.Vector3(0.707, 0.707, 0) },
+            { position: new THREE.Vector3(0.5, 0.5, 0), direction: new THREE.Vector3(0.707, 0.707, 0) },
         ],
     },
     vertical: {
@@ -99,8 +99,8 @@ export const COMPONENT_DEFINITIONS = {
         defaultOD: 0.50,
         defaultWT: 0.01,
         sockets: [
-            { position: new THREE.Vector3(0, 0.1, 0), direction: new THREE.Vector3(0, 1, 0) },
-            { position: new THREE.Vector3(0, -0.1, 0), direction: new THREE.Vector3(0, -1, 0) },
+            { position: new THREE.Vector3(0, 0.25, 0), direction: new THREE.Vector3(0, 1, 0) },
+            { position: new THREE.Vector3(0, -0.075, 0), direction: new THREE.Vector3(0, -1, 0) },
         ],
     },
     union: {
@@ -164,7 +164,7 @@ export const COMPONENT_DEFINITIONS = {
         standardWeight: 'Standard Weight',
         sockets: [
             { position: new THREE.Vector3(0, 0.7, 0), direction: new THREE.Vector3(0, 1, 0) },
-            { position: new THREE.Vector3(0, -0.5, 0), direction: new THREE.Vector3(0, -1, 0) },
+            { position: new THREE.Vector3(0, -0.7, 0), direction: new THREE.Vector3(0, -1, 0) },
         ],
     },
     tank: {
@@ -172,10 +172,11 @@ export const COMPONENT_DEFINITIONS = {
         weightPerUnit: 25.0, // kg per piece (base)
         standardWeight: 'Standard Weight',
         defaultOD: 2.0,
+        defaultLength: 2.0,
         defaultWT: 0.05,
         sockets: [
-            { position: new THREE.Vector3(0, 2.1, 0), direction: new THREE.Vector3(0, 1, 0) },
-            { position: new THREE.Vector3(0, -1, 0), direction: new THREE.Vector3(0, -1, 0) },
+            { position: new THREE.Vector3(0, 1, 0), direction: new THREE.Vector3(0, 1, 0) },   // Top of dome
+            { position: new THREE.Vector3(0, -1, 0), direction: new THREE.Vector3(0, -1, 0) }, // Bottom face
         ],
     },
     cap: {
@@ -236,9 +237,18 @@ export const COMPONENT_DEFINITIONS = {
         weightPerUnit: 45.0,
         standardWeight: 'Standard HP',
         defaultOD: 2.2,
+        defaultLength: 4.0,
         defaultWT: 0.08,
         defaultMaterial: 'industrial_yellow',
-        sockets: [],
+        sockets: [
+            { position: new THREE.Vector3(0, 1.0, 0), direction: new THREE.Vector3(0, 1, 0) },   // Top face
+            { position: new THREE.Vector3(1, 0.25, 0), direction: new THREE.Vector3(1, 0, 0) }, // Side High X+
+            { position: new THREE.Vector3(-1, 0.25, 0), direction: new THREE.Vector3(-1, 0, 0) }, // Side High X-
+            { position: new THREE.Vector3(0, 0.25, 1), direction: new THREE.Vector3(0, 0, 1) }, // Side High Z+
+            { position: new THREE.Vector3(0, 0.25, -1), direction: new THREE.Vector3(0, 0, -1) }, // Side High Z-
+            { position: new THREE.Vector3(1, -0.25, 0), direction: new THREE.Vector3(1, 0, 0) }, // Side Low X+
+            { position: new THREE.Vector3(-1, -0.25, 0), direction: new THREE.Vector3(-1, 0, 0) }, // Side Low X-
+        ],
     },
     wall: {
         type: 'wall',
